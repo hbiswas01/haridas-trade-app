@@ -9,7 +9,7 @@ st.set_page_config(layout="wide", page_title="Haridas Pro Master Terminal v38.0"
 
 IST = pytz.timezone('Asia/Kolkata')
 
-# কাস্টম ডিজাইন (Tkinter লুকের মতো পরিষ্কার ডিজাইন)
+# কাস্টম ডিজাইন (আপনার Tkinter স্টাইল অনুযায়ী)
 st.markdown("""
     <style>
     .main { background-color: #eaedf2; }
@@ -75,22 +75,25 @@ if st.button("🔍 SCAN MARKET NOW", use_container_width=True):
                         ltp, prev_c = round(p[-1], 2), p[-2]
                         chg = round(((ltp - prev_c) / prev_c) * 100, 2)
                         
-                        # ৩ দিন ট্রেন্ড (Drastic Watch)
                         trend = "-"
                         if p[-2] < p[-3] < p[-4]: trend = "Falling 📉"
                         elif p[-2] > p[-3] > p[-4]: trend = "Rising 📈"
                         if trend != "-": drastic_res.append({"Stock": s.replace(".NS",""), "Status": trend})
 
-                        # সিগন্যাল লজিক (পঙ্কজ ২% স্ট্র্যাটেজি)
                         sig = "-"
-                        if chg >= 2.0 and "Falling" not in trend: sig = "🟢 BUY"
-                        elif chg <= -2.0 and "Rising" not in trend: sig = "🔴 SELL"
+                        if chg >= 2.0 and "Falling" not in trend: sig = "BUY"
+                        elif chg <= -2.0 and "Rising" not in trend: sig = "SELL"
                         
+                        # আপনার অরিজিনাল কলামগুলো (Stock, LTP, Chg%, Signal, SL, T1, T2, T3, Time)
                         all_res.append({
-                            "Stock": s.replace(".NS",""), "LTP": ltp, "Chg%": chg, "Signal": sig,
-                            "SL": round(ltp*0.985 if "BUY" in sig else ltp*1.015, 2),
-                            "T1": round(ltp*1.01 if "BUY" in sig else ltp*0.99, 2),
-                            "T2": round(ltp*1.02 if "BUY" in sig else ltp*0.98, 2),
+                            "Stock": s.replace(".NS",""), 
+                            "LTP": ltp, 
+                            "Chg%": f"{chg}%", 
+                            "Signal": sig,
+                            "SL": round(ltp*0.985 if sig=="BUY" else ltp*1.015, 2),
+                            "T1": round(ltp*1.01 if sig=="BUY" else ltp*0.99, 2),
+                            "T2": round(ltp*1.02 if sig=="BUY" else ltp*0.98, 2),
+                            "T3": round(ltp*1.03 if sig=="BUY" else ltp*0.97, 2),
                             "Time": datetime.now(IST).strftime('%H:%M:%S')
                         })
                         if chg > 0: adv += 1
@@ -98,34 +101,10 @@ if st.button("🔍 SCAN MARKET NOW", use_container_width=True):
                         s_chgs.append(chg)
                 except: continue
             if s_chgs:
-                sec_res.append({"Sector": sector, "Avg%": round(sum(s_chgs)/len(s_chgs), 2)})
+                sec_res.append({"Sector": sector, "Chg%": f"{round(sum(s_chgs)/len(s_chgs), 2)}%"})
 
     # ডাটা আপডেট
     adv_spot.markdown(f"🟢 **ADVANCES: {adv}**")
     dec_spot.markdown(f"🔴 **DECLINES: {dec}**")
 
-    # ৬. রেসপনসিভ লেআউট (Auto-Adaptive)
-    col_left, col_mid, col_right = st.columns([1, 2, 1])
-
-    with col_left:
-        st.markdown("<div class='stat-header'>🏢 SECTOR PERFORMANCE</div>", unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(sec_res).sort_values("Avg%", ascending=False), hide_index=True, use_container_width=True)
-
-    with col_mid:
-        st.markdown("<div class='stat-header'>🎯 TRADING SIGNALS</div>", unsafe_allow_html=True)
-        # শুধু সিগন্যাল থাকলে হাইলাইট করে দেখাবে
-        st.dataframe(pd.DataFrame(all_res), use_container_width=True, hide_index=True)
-
-    with col_right:
-        st.markdown("<div class='stat-header'>🔥 TOP MOVERS</div>", unsafe_allow_html=True)
-        df_m = pd.DataFrame(all_res).sort_values("Chg%", ascending=False)
-        st.write("**Top 5 Gainers**")
-        st.table(df_m[['Stock', 'Chg%']].head(5))
-        st.write("**Top 5 Losers**")
-        st.table(df_m[['Stock', 'Chg%']].tail(5))
-        
-        st.markdown("<div class='stat-header'>⚠️ DRASTIC WATCH</div>", unsafe_allow_html=True)
-        if drastic_res: st.table(pd.DataFrame(drastic_res))
-        else: st.write("No drastic moves.")
-else:
-    st.info("Monday 09:15 AM - Press Button to Scan.")
+    # ৬. রেসপনসি
