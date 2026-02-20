@@ -107,4 +107,25 @@ if st.button("🔍 SCAN MARKET NOW", use_container_width=True):
     adv_spot.markdown(f"🟢 **ADVANCES: {adv}**")
     dec_spot.markdown(f"🔴 **DECLINES: {dec}**")
 
-    # ৬. রেসপনসি
+    # ৬. রেসপনসিভ লেআউট (Auto-Adaptive)
+    col_left, col_mid, col_right = st.columns([1, 2, 1])
+
+    with col_left:
+        st.markdown("<div class='stat-header'>🏢 SECTOR PERFORMANCE</div>", unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame(sec_res), hide_index=True, use_container_width=True)
+
+    with col_mid:
+        st.markdown("<div class='stat-header'>🎯 TRADING SIGNALS</div>", unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame(all_res), use_container_width=True, hide_index=True)
+
+    with col_right:
+        st.markdown("<div class='stat-header'>🔥 TOP MOVERS</div>", unsafe_allow_html=True)
+        df_m = pd.DataFrame(all_res)
+        st.write("**Top 5 Gainers**")
+        st.table(df_m.sort_values("Chg%", ascending=False)[['Stock', 'Chg%']].head(5))
+        
+        st.markdown("<div class='stat-header'>⚠️ DRASTIC WATCH</div>", unsafe_allow_html=True)
+        if drastic_res: st.table(pd.DataFrame(drastic_res))
+        else: st.write("No drastic moves.")
+else:
+    st.info("Monday 09:15 AM - Press Button to Scan.")
