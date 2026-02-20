@@ -114,4 +114,18 @@ if st.button("🔍 SCAN MARKET NOW", use_container_width=True):
     with col_mid:
         st.markdown("<div class='stat-header'>🎯 TRADING SIGNALS</div>", unsafe_allow_html=True)
         # শুধু সিগন্যাল থাকলে হাইলাইট করে দেখাবে
-        st.dataframe(pd.DataFrame(all_res), use_container_width=True, hide_index=True
+        st.dataframe(pd.DataFrame(all_res), use_container_width=True, hide_index=True)
+
+    with col_right:
+        st.markdown("<div class='stat-header'>🔥 TOP MOVERS</div>", unsafe_allow_html=True)
+        df_m = pd.DataFrame(all_res).sort_values("Chg%", ascending=False)
+        st.write("**Top 5 Gainers**")
+        st.table(df_m[['Stock', 'Chg%']].head(5))
+        st.write("**Top 5 Losers**")
+        st.table(df_m[['Stock', 'Chg%']].tail(5))
+        
+        st.markdown("<div class='stat-header'>⚠️ DRASTIC WATCH</div>", unsafe_allow_html=True)
+        if drastic_res: st.table(pd.DataFrame(drastic_res))
+        else: st.write("No drastic moves.")
+else:
+    st.info("Monday 09:15 AM - Press Button to Scan.")
