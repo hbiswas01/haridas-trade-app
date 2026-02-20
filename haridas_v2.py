@@ -3,10 +3,10 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime
 
-# ১. পেজ সেটআপ (সবার আগে থাকতে হবে)
+# ১. পেজ সেটআপ (সবার উপরে থাকতে হবে)
 st.set_page_config(page_title="Haridas Pro Master Terminal v38.0", layout="wide")
 
-# ২. প্রিমিয়াম ডিজাইন ও কালার CSS
+# ২. প্রিমিয়াম ডার্ক থিম ও স্টাইলিং CSS
 st.markdown("""
     <style>
     .main { background-color: #eaedf2; }
@@ -22,25 +22,25 @@ st.markdown("""
     }
     .adv { color: #00ffcc; margin-right: 15px; }
     .dec { color: #ff4444; }
-    div[data-testid="stMetricValue"] { font-size: 1.4rem !important; font-weight: bold; }
+    div[data-testid="stMetricValue"] { font-size: 1.5rem !important; color: #1a1a1a; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# ৩. অটো রিফ্রেশ (প্রতি ৬০ সেকেন্ডে)
+# ৩. অটো রিফ্রেশ জাভাস্ক্রিপ্ট (প্রতি ৬০ সেকেন্ডে অটো আপডেট হবে)
 st.markdown("<script>setTimeout(function(){ window.location.reload(); }, 60000);</script>", unsafe_allow_html=True)
 
-# ৪. ডাটা সোর্স
+# ৪. ডাটা সোর্স (SECTOR_MAP)
 SECTOR_MAP = {
     "NIFTY METAL ⚙️": ["HINDALCO.NS", "TATASTEEL.NS", "JSWSTEEL.NS", "VEDL.NS"],
     "NIFTY ENERGY ⚡": ["RELIANCE.NS", "NTPC.NS", "POWERGRID.NS", "ONGC.NS"],
-    "NIFTY FMCG 🛒": ["ITC.NS", "HINDUNILVR.NS", "BRITANNIA.NS"],
+    "NIFTY FMCG 🛒": ["ITC.NS", "HINDUNILVR.NS", "NESTLEIND.NS"],
     "NIFTY BANK 🏦": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "AXISBANK.NS"],
     "NIFTY IT 💻": ["TCS.NS", "INFY.NS", "HCLTECH.NS", "WIPRO.NS"],
     "NIFTY AUTO 🚗": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS"],
     "NIFTY PHARMA 💊": ["SUNPHARMA.NS", "CIPLA.NS", "DRREDDY.NS"]
 }
 
-# ৫. মেইন ক্যালকুলেশন লজিক
+# ৫. ডাটা ফেচিং এবং লজিক (সব রিকোয়ারমেন্ট সহ)
 all_stocks, sector_summary = [], []
 adv, dec = 0, 0
 
@@ -56,18 +56,19 @@ with st.spinner('Scanning Live Market...'):
                     if chg > 0: adv += 1
                     else: dec += 1
                     
-                    # ৩ দিনের ট্রেন্ড চেক
+                    # ৩ দিনের ট্রেন্ড চেক (Drastic Watch)
+                    is_falling = (p[-2] < p[-3] < p[-4])
+                    is_rising = (p[-2] > p[-3] > p[-4])
                     trend = "Normal"
-                    if p[-2] < p[-3] < p[-4]: trend = "৩ দিন পতন 📉"
-                    elif p[-2] > p[-3] > p[-4]: trend = "৩ দিন উত্থান 📈"
+                    if is_falling: trend = "৩ দিন পতন 📉"
+                    elif is_rising: trend = "৩ দিন উত্থান 📈"
                     
                     # সিগন্যাল লজিক (Pankaj Strategy)
-                    sig = "-"
-                    sl, t1, t2, t3 = 0, 0, 0, 0
-                    if chg >= 2.0 and "পতন" not in trend:
+                    sig, sl, t1, t2, t3 = "-", 0, 0, 0, 0
+                    if chg >= 2.0 and not is_falling:
                         sig = "BUY"
                         sl, t1, t2, t3 = round(ltp*0.985, 2), round(ltp*1.01, 2), round(ltp*1.02, 2), round(ltp*1.03, 2)
-                    elif chg <= -2.0 and "উত্থান" not in trend:
+                    elif chg <= -2.0 and not is_rising:
                         sig = "SELL"
                         sl, t1, t2, t3 = round(ltp*1.015, 2), round(ltp*0.99, 2), round(ltp*0.98, 2), round(ltp*0.97, 2)
                     
@@ -80,22 +81,24 @@ with st.spinner('Scanning Live Market...'):
             except: continue
         if sec_chgs:
             avg_chg = round(sum(sec_chgs)/len(sec_chgs), 2)
+            # সেক্টর ট্রেন্ড ভিজ্যুয়াল (█)
             bar = "█" * int(abs(avg_chg) * 5) if abs(avg_chg) > 0 else "▏"
             sector_summary.append({"Sector": sector, "%": f"{avg_chg}%", "Trend visual": bar})
 
 full_df = pd.DataFrame(all_stocks)
 
-# ৬. ইউজার ইন্টারফেস (Layout)
+# ৬. প্রিমিয়াম ইউজার ইন্টারফেস (Layout)
 st.markdown(f"""
     <div class="top-bar">
         <div style="font-size: 20px;">HARIDAS PRO TERMINAL v38.0</div>
-        <div style="color: #ffcc00;">LIVE: {datetime.now().strftime('%H:%M:%S')}</div>
+        <div style="color: #ffcc00;">LIVE CLOCK: {datetime.now().strftime('%H:%M:%S')}</div>
         <div>
             <span class="adv">ADVANCES: {adv}</span> <span class="dec">DECLINES: {dec}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+# কলাম বিন্যাস (৩ কলাম লেআউট - তোমার ছবির মতো)
 c_left, c_mid, c_right = st.columns([1.3, 3, 1.2])
 
 with c_left:
@@ -104,28 +107,30 @@ with c_left:
         st.table(pd.DataFrame(sector_summary))
 
 with c_mid:
-    # মার্কেট ইনডেক্স বক্স (অ্যামাউন্ট সহ)
-    st.markdown('<div class="section-header">📉 MARKET INDICES</div>', unsafe_allow_html=True)
+    # মার্কেট ইনডেক্স বক্স (অ্যামাউন্ট এবং পয়েন্ট সহ)
+    st.markdown('<div class="section-header">📊 MARKET INDICES</div>', unsafe_allow_html=True)
     i_cols = st.columns(3)
-    idx_map = {"SENSEX": "^BSESN", "NIFTY 50": "^NSEI", "NIFTY BANK": "^NSEBANK"}
+    idx_map = {"SENSEX": "^BSESN", "NIFTY 50": "^NSEI", "BANK NIFTY": "^NSEBANK"}
     for i, (n, s) in enumerate(idx_map.items()):
         try:
             d = yf.Ticker(s).history(period="2d")
-            amt, prev = d['Close'].iloc[-1], d['Close'].iloc[-2]
-            i_cols[i].metric(n, f"{amt:,.2f}", f"{((amt-prev)/prev)*100:.2f}%")
-        except: pass
+            amt = d['Close'].iloc[-1]
+            prev = d['Close'].iloc[-2]
+            pct = ((amt - prev) / prev) * 100
+            i_cols[i].metric(n, f"{amt:,.2f}", f"{pct:.2f}%")
+        except: i_cols[i].error("No Sync")
 
-    # ট্রেডিং সিগন্যাল
+    # ট্রেডিং সিগন্যাল (শুধুমাত্র BUY/SELL সিগন্যালগুলো দেখাবে)
     st.markdown('<div class="section-header">💹 TRADING SIGNALS (Pankaj Strategy)</div>', unsafe_allow_html=True)
     if not full_df.empty:
         sig_only = full_df[full_df["Signal"] != "-"]
         if not sig_only.empty:
             st.dataframe(sig_only, use_container_width=True, hide_index=True)
         else:
-            st.info("No Active Signals.")
+            st.info("No Active Signals at the moment.")
 
 with c_right:
-    if st.button('🔄 FORCE REFRESH'): st.rerun()
+    if st.button('🔄 FORCE REFRESH DATA'): st.rerun()
     
     st.markdown('<div class="section-header">🏆 TOP GAINERS</div>', unsafe_allow_html=True)
     if not full_df.empty:
@@ -137,4 +142,4 @@ with c_right:
 
 # ডাউনলোড বাটন
 if not full_df.empty:
-    st.download_button("📂 EXPORT EXCEL", full_df.to_csv(index=False).encode('utf-8'), f"Trade_{datetime.now().strftime('%d%m_%H%M')}.csv", "text/csv")
+    st.download_button("📂 EXPORT EXCEL", full_df.to_csv(index=False).encode('utf-8'), f"Haridas_Trade_{datetime.now().strftime('%d%m_%H%M')}.csv", "text/csv")
