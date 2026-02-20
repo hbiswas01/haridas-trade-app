@@ -4,23 +4,23 @@ import pandas as pd
 from datetime import datetime
 import pytz
 
-# ১. পেজ সেটআপ (Wide Layout - Responsive)
+# ১. পেজ সেটআপ
 st.set_page_config(layout="wide", page_title="Haridas Pro Master Terminal v38.0")
-
 IST = pytz.timezone('Asia/Kolkata')
 
-# কাস্টম ডিজাইন (আপনার Tkinter স্টাইল অনুযায়ী)
+# ২. আপনার অরিজিনাল Tkinter স্টাইল এবং কালার
 st.markdown("""
     <style>
     .main { background-color: #eaedf2; }
-    header {visibility: hidden;}
-    .stButton>button { background: linear-gradient(to right, #007bff, #00c6ff); color: white; font-weight: bold; width: 100%; border-radius: 8px; height: 3.5em; font-size: 18px; }
-    .idx-card { background-color: #f8f9fc; padding: 12px; border-radius: 10px; border: 1px solid #e3e6f0; text-align: center; box-shadow: 2px 2px 5px rgba(0,0,0,0.05); }
-    .stat-header { background-color: #4e73df; color: white; padding: 5px; border-radius: 5px; text-align: center; font-weight: bold; margin-bottom: 5px; }
+    .stButton>button { background-color: #007bff; color: white; font-weight: bold; width: 100%; border-radius: 5px; height: 3em; }
+    .idx-card { background-color: #f8f9fc; padding: 10px; border-radius: 8px; border: 1px solid #e3e6f0; text-align: center; }
+    /* সিগন্যাল রো কালার */
+    .buy-row { background-color: #d4edda !important; color: #155724 !important; }
+    .sell-row { background-color: #f8d7da !important; color: #721c24 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# ২. সেক্টর ম্যাপ (আপনার অরিজিনাল লিস্ট)
+# ৩. আপনার অরিজিনাল সেক্টর ম্যাপ
 SECTOR_MAP = {
     "NIFTY BANK 🏦": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS"],
     "NIFTY IT 💻": ["TCS.NS", "INFY.NS", "HCLTECH.NS", "WIPRO.NS", "TECHM.NS"],
@@ -34,37 +34,33 @@ SECTOR_MAP = {
     "NIFTY FIN SRV 💹": ["BAJFINANCE.NS", "BAJAJFINSV.NS", "CHOLAFIN.NS"]
 }
 
-# ৩. টপ বার (টাইটেল, অ্যাডভান্স/ডিক্লাইন, লাইভ ঘড়ি)
-top_col1, top_col2, top_col3, top_col4 = st.columns([2, 1, 1, 1])
-with top_col1:
-    st.markdown("<h2 style='color: #0a192f; margin:0;'>📡 HARIDAS NSE TERMINAL</h2>", unsafe_allow_html=True)
-with top_col2:
-    st.markdown(f"🕒 **LIVE: {datetime.now(IST).strftime('%H:%M:%S')}**")
+# ৪. টপ বার
+top_c = st.columns([2, 1, 1, 1])
+top_c[0].markdown("<h2 style='color: #0a192f; margin:0;'>📡 HARIDAS NSE TERMINAL</h2>", unsafe_allow_html=True)
+clock_spot = top_c[1].empty()
+adv_spot = top_c[2].empty()
+dec_spot = top_c[3].empty()
+clock_spot.markdown(f"🕒 **LIVE: {datetime.now(IST).strftime('%H:%M:%S')}**")
 
-adv_spot = top_col3.empty()
-dec_spot = top_col4.empty()
-
-# ৪. মার্কেট ইনডেক্স কার্ডস
+# ৫. ইনডেক্স কার্ডস
 st.write("---")
 indices = {"SENSEX": "^BSESN", "NIFTY 50": "^NSEI", "NIFTY BANK": "^NSEBANK", "NIFTY IT": "^CNXIT", "NIFTY FIN": "NIFTY_FIN_SERVICE.NS"}
-idx_cols = st.columns(len(indices))
-
+idx_cols = st.columns(5)
 for i, (name, sym) in enumerate(indices.items()):
     try:
         idat = yf.Ticker(sym).history(period="2d")
         lp = round(idat['Close'].iloc[-1], 2)
         pct = round(((lp - idat['Close'].iloc[-2])/idat['Close'].iloc[-2])*100, 2)
-        color = "#28a745" if pct >= 0 else "#dc3545"
-        idx_cols[i].markdown(f"<div class='idx-card'><small>{name}</small><br><b>{lp}</b><br><span style='color:{color};'>{pct}%</span></div>", unsafe_allow_html=True)
+        idx_cols[i].markdown(f"<div class='idx-card'><b>{name}</b><br>{lp}<br><span style='color:{'green' if pct>=0 else 'red'};'>{pct}%</span></div>", unsafe_allow_html=True)
     except: continue
 
-# ৫. মেইন স্ক্যানার বাটন
+# ৬. স্ক্যানার
 st.write("---")
 if st.button("🔍 SCAN MARKET NOW", use_container_width=True):
     all_res, sec_res, drastic_res = [], [], []
     adv, dec = 0, 0
 
-    with st.spinner('Analysing Market Data...'):
+    with st.spinner('Analysing Market...'):
         for sector, stocks in SECTOR_MAP.items():
             s_chgs = []
             for s in stocks:
@@ -75,21 +71,22 @@ if st.button("🔍 SCAN MARKET NOW", use_container_width=True):
                         ltp, prev_c = round(p[-1], 2), p[-2]
                         chg = round(((ltp - prev_c) / prev_c) * 100, 2)
                         
+                        # আপনার অরিজিনাল ৩ দিন পতন/উত্থান লজিক
+                        is_falling_3d = (p[-2] < p[-3] < p[-4])
+                        is_rising_3d = (p[-2] > p[-3] > p[-4])
+                        
                         trend = "-"
-                        if p[-2] < p[-3] < p[-4]: trend = "Falling 📉"
-                        elif p[-2] > p[-3] > p[-4]: trend = "Rising 📈"
+                        if is_falling_3d: trend = "৩ দিন পতন"
+                        elif is_rising_3d: trend = "৩ দিন উত্থান"
                         if trend != "-": drastic_res.append({"Stock": s.replace(".NS",""), "Status": trend})
 
+                        # পঙ্কজ স্ট্র্যাটেজি সিগন্যাল
                         sig = "-"
-                        if chg >= 2.0 and "Falling" not in trend: sig = "BUY"
-                        elif chg <= -2.0 and "Rising" not in trend: sig = "SELL"
+                        if chg >= 2.0 and not is_falling_3d: sig = "BUY"
+                        elif chg <= -2.0 and not is_rising_3d: sig = "SELL"
                         
-                        # আপনার অরিজিনাল কলামগুলো (Stock, LTP, Chg%, Signal, SL, T1, T2, T3, Time)
                         all_res.append({
-                            "Stock": s.replace(".NS",""), 
-                            "LTP": ltp, 
-                            "Chg%": f"{chg}%", 
-                            "Signal": sig,
+                            "Stock": s.replace(".NS",""), "LTP": ltp, "Chg%": f"{chg}%", "Signal": sig,
                             "SL": round(ltp*0.985 if sig=="BUY" else ltp*1.015, 2),
                             "T1": round(ltp*1.01 if sig=="BUY" else ltp*0.99, 2),
                             "T2": round(ltp*1.02 if sig=="BUY" else ltp*0.98, 2),
@@ -103,29 +100,24 @@ if st.button("🔍 SCAN MARKET NOW", use_container_width=True):
             if s_chgs:
                 sec_res.append({"Sector": sector, "Chg%": f"{round(sum(s_chgs)/len(s_chgs), 2)}%"})
 
-    # ডাটা আপডেট
+    # আপডেট
     adv_spot.markdown(f"🟢 **ADVANCES: {adv}**")
     dec_spot.markdown(f"🔴 **DECLINES: {dec}**")
 
-    # ৬. রেসপনসিভ লেআউট (Auto-Adaptive)
-    col_left, col_mid, col_right = st.columns([1, 2, 1])
-
-    with col_left:
-        st.markdown("<div class='stat-header'>🏢 SECTOR PERFORMANCE</div>", unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(sec_res), hide_index=True, use_container_width=True)
-
-    with col_mid:
-        st.markdown("<div class='stat-header'>🎯 TRADING SIGNALS</div>", unsafe_allow_html=True)
+    # লেআউট
+    c_l, c_m, c_r = st.columns([1, 2, 1])
+    with c_l:
+        st.subheader("🏢 SECTOR PERFORMANCE")
+        st.table(pd.DataFrame(sec_res))
+    with c_m:
+        st.subheader("🎯 TRADING SIGNALS")
         st.dataframe(pd.DataFrame(all_res), use_container_width=True, hide_index=True)
-
-    with col_right:
-        st.markdown("<div class='stat-header'>🔥 TOP MOVERS</div>", unsafe_allow_html=True)
+    with c_r:
+        st.subheader("🔥 TOP MOVERS")
         df_m = pd.DataFrame(all_res)
-        st.write("**Top 5 Gainers**")
-        st.table(df_m.sort_values("Chg%", ascending=False)[['Stock', 'Chg%']].head(5))
-        
-        st.markdown("<div class='stat-header'>⚠️ DRASTIC WATCH</div>", unsafe_allow_html=True)
-        if drastic_res: st.table(pd.DataFrame(drastic_res))
-        else: st.write("No drastic moves.")
+        st.write("**Gainers**")
+        st.table(df_m.sort_values("LTP", ascending=False)[['Stock', 'Chg%']].head(5))
+        st.subheader("⚠️ DRASTIC WATCH")
+        st.table(pd.DataFrame(drastic_res))
 else:
     st.info("Monday 09:15 AM - Press Button to Scan.")
