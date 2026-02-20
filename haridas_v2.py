@@ -4,47 +4,57 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# --- Page Config ---
-st.set_page_config(page_title="Haridas Pro Terminal", layout="wide")
+# --- Page Configuration ---
+st.set_page_config(
+    page_title="Haridas Master Terminal",
+    layout="wide", # এটি স্ক্রিন অ্যাডজাস্ট করতে সাহায্য করে
+    initial_sidebar_state="collapsed"
+)
 
-# --- CSS for Styling (Desktop Look) ---
+# --- Responsive CSS ---
 st.markdown("""
     <style>
+    [data-testid="stMetricValue"] { font-size: 1.5rem !important; }
     .main { background-color: #eaedf2; }
-    .stMetric { background-color: #ffffff; padding: 10px; border-radius: 5px; border: 1px solid #e3e6f0; }
-    .buy-signal { color: #155724; background-color: #d4edda; font-weight: bold; padding: 5px; }
-    .sell-signal { color: #721c24; background-color: #f8d7da; font-weight: bold; padding: 5px; }
+    div.stButton > button { width: 100%; border-radius: 5px; height: 3em; background-color: #007bff; color: white; }
+    /* Table font size for mobile */
+    .scaled-table { font-size: 0.8rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- Sector Map ---
 SECTOR_MAP = {
-    "BANK 🏦": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS"],
-    "IT 💻": ["TCS.NS", "INFY.NS", "HCLTECH.NS", "WIPRO.NS", "TECHM.NS"],
-    "AUTO 🚗": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
-    "METAL ⚙️": ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS"],
-    "ENERGY ⚡": ["RELIANCE.NS", "NTPC.NS", "POWERGRID.NS", "ONGC.NS"],
-    "PHARMA 💊": ["SUNPHARMA.NS", "CIPLA.NS", "DRREDDY.NS", "DIVISLAB.NS"],
-    "FMCG 🛒": ["ITC.NS", "HINDUNILVR.NS", "NESTLEIND.NS", "BRITANNIA.NS"],
-    "FIN SRV 💹": ["BAJFINANCE.NS", "BAJAJFINSV.NS", "CHOLAFIN.NS"]
+    "NIFTY BANK 🏦": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS"],
+    "NIFTY IT 💻": ["TCS.NS", "INFY.NS", "HCLTECH.NS", "WIPRO.NS", "TECHM.NS"],
+    "NIFTY AUTO 🚗": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
+    "NIFTY METAL ⚙️": ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS"],
+    "NIFTY ENERGY ⚡": ["RELIANCE.NS", "NTPC.NS", "POWERGRID.NS", "ONGC.NS"],
+    "NIFTY PHARMA 💊": ["SUNPHARMA.NS", "CIPLA.NS", "DRREDDY.NS", "DIVISLAB.NS"],
+    "NIFTY FMCG 🛒": ["ITC.NS", "HINDUNILVR.NS", "NESTLEIND.NS", "BRITANNIA.NS"],
+    "NIFTY FIN SRV 💹": ["BAJFINANCE.NS", "BAJAJFINSV.NS", "CHOLAFIN.NS"]
 }
 
-# --- Header Section ---
-t1, t2 = st.columns([3, 1])
-with t1:
-    st.title("📟 HARIDAS NSE TERMINAL v2")
-with t2:
-    st.write(f"**Last Sync:** {datetime.now().strftime('%H:%M:%S')}")
-    if st.button('🔄 Force Refresh'):
+# --- Header & Clock ---
+c1, c2, c3 = st.columns([2, 1, 1])
+with c1:
+    st.subheader("📟 HARIDAS NSE TERMINAL v38.0")
+with c2:
+    st.write(f"🕒 **LIVE:** {datetime.now().strftime('%H:%M:%S')}")
+with c3:
+    if st.button('🔄 REFRESH NOW'):
         st.rerun()
 
-# --- Auto Refresh Logic (Every 120 Seconds) ---
-# Streamlit-এ সরাসরি লুপ চালানো যায় না, তাই টাইমার ব্যবহার করছি
-# st.empty() দিয়ে কন্টেইনার আপডেট করা হয়
+# --- Auto Refresh Script (Every 60 Seconds) ---
+st.markdown("""
+    <script>
+    setTimeout(function(){ window.location.reload(); }, 60000);
+    </script>
+    """, unsafe_allow_html=True)
 
 # --- Market Indices ---
-indices = {"NIFTY 50": "^NSEI", "BANK NIFTY": "^NSEBANK", "NIFTY IT": "^CNXIT", "SENSEX": "^BSESN"}
-cols = st.columns(len(indices))
+st.write("### 📊 Market Indices")
+indices = {"NIFTY 50": "^NSEI", "BANK NIFTY": "^NSEBANK", "NIFTY IT": "^CNXIT", "SENSEX": "^BSESN", "NIFTY FIN": "NIFTY_FIN_SERVICE.NS"}
+idx_cols = st.columns(len(indices))
 
 for i, (name, sym) in enumerate(indices.items()):
     try:
@@ -52,17 +62,18 @@ for i, (name, sym) in enumerate(indices.items()):
         ltp = round(data['Close'].iloc[-1], 2)
         prev = data['Close'].iloc[-2]
         chg = round(((ltp - prev) / prev) * 100, 2)
-        cols[i].metric(name, f"₹{ltp}", f"{chg}%")
+        idx_cols[i].metric(label=name, value=ltp, delta=f"{chg}%")
     except:
-        cols[i].error(f"Error {name}")
+        idx_cols[i].error("N/A")
 
 st.divider()
 
-# --- Main Logic ---
+# --- Main Data Fetching ---
 all_stocks = []
-sector_summary = []
+sector_data = []
+advances, declines = 0, 0
 
-with st.spinner('Fetching Live Data...'):
+with st.spinner('Scanning NSE Stocks...'):
     for sector, stocks in SECTOR_MAP.items():
         sec_chgs = []
         for s in stocks:
@@ -71,75 +82,74 @@ with st.spinner('Fetching Live Data...'):
                 if len(df) >= 4:
                     prices = df['Close'].values
                     ltp = round(prices[-1], 2)
-                    prev_close = prices[-2]
-                    change = round(((ltp - prev_close) / prev_close) * 100, 2)
+                    prev = prices[-2]
+                    chg = round(((ltp - prev) / prev) * 100, 2)
                     
-                    # 3-Day Trend (v2 Logic)
-                    is_falling_3d = (prices[-2] < prices[-3] < prices[-4])
-                    is_rising_3d = (prices[-2] > prices[-3] > prices[-4])
+                    if chg > 0: advances += 1
+                    else: declines += 1
                     
-                    trend = "Normal"
-                    if is_falling_3d: trend = "৩ দিন পতন 📉"
-                    elif is_rising_3d: trend = "৩ দিন উত্থান 📈"
+                    # 3-Day Trend (Drastic Watch)
+                    is_falling = (prices[-2] < prices[-3] < prices[-4])
+                    is_rising = (prices[-2] > prices[-3] > prices[-4])
+                    trend_status = "Normal"
+                    if is_falling: trend_status = "৩ দিন পতন 📉"
+                    elif is_rising: trend_status = "৩ দিন উত্থান 📈"
                     
+                    # Signal Logic
                     signal = "-"
-                    if change >= 2.0 and not is_falling_3d: signal = "BUY"
-                    elif change <= -2.0 and not is_rising_3d: signal = "SELL"
+                    if chg >= 2.0 and not is_falling: signal = "BUY"
+                    elif chg <= -2.0 and not is_rising: signal = "SELL"
+                    
+                    # Target & SL Logic
+                    sl, t1, t2, t3 = 0, 0, 0, 0
+                    if signal != "-":
+                        sl = round(ltp * 0.985, 2) if signal == "BUY" else round(ltp * 1.015, 2)
+                        t1 = round(ltp * 1.01, 2) if signal == "BUY" else round(ltp * 0.99, 2)
+                        t3 = round(ltp * 1.03, 2) if signal == "BUY" else round(ltp * 0.97, 2)
                     
                     all_stocks.append({
-                        "Stock": s, "Sector": sector, "LTP": ltp, 
-                        "Change%": change, "Trend": trend, "Signal": signal
+                        "Stock": s, "LTP": ltp, "Chg%": chg, "Signal": signal, 
+                        "SL": sl, "T1": t1, "T3": t3, "Trend": trend_status, "Time": datetime.now().strftime("%H:%M")
                     })
-                    sec_chgs.append(change)
+                    sec_chgs.append(chg)
             except: continue
         
         if sec_chgs:
-            avg_chg = round(sum(sec_chgs)/len(sec_chgs), 2)
-            sector_summary.append({"Sector": sector, "Avg Chg%": avg_chg})
+            avg = round(sum(sec_chgs)/len(sec_chgs), 2)
+            sector_data.append({"Sector": sector, "Avg%": avg})
 
-# --- Display Section ---
-c1, c2 = st.columns([1, 2])
+# --- UI Layout ---
+m1, m2 = st.columns([1, 1])
+m1.success(f"📈 ADVANCES: {advances}")
+m2.error(f"📉 DECLINES: {declines}")
 
-with c1:
-    st.subheader("🏢 Sector Performance")
-    sec_df = pd.DataFrame(sector_summary).sort_values(by="Avg Chg%", ascending=False)
-    st.dataframe(sec_df, use_container_width=True, hide_index=True)
+st.write("### 💹 Trading Signals (Pankaj Strategy)")
+sig_df = pd.DataFrame(all_stocks)
 
-with c2:
-    st.subheader("💹 Trading Signals (Pankaj Strategy)")
-    full_df = pd.DataFrame(all_stocks)
-    
-    # Highlight signals
-    def highlight_signal(val):
-        if val == "BUY": return 'background-color: #d4edda; color: #155724; font-weight: bold'
-        if val == "SELL": return 'background-color: #f8d7da; color: #721c24; font-weight: bold'
-        return ''
+def color_signal(val):
+    if val == "BUY": return 'background-color: #d4edda; color: #155724'
+    if val == "SELL": return 'background-color: #f8d7da; color: #721c24'
+    return ''
 
-    if not full_df.empty:
-        styled_df = full_df.style.applymap(highlight_signal, subset=['Signal'])
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+if not sig_df.empty:
+    st.dataframe(sig_df.style.applymap(color_signal, subset=['Signal']), use_container_width=True, hide_index=True)
 
-# --- Drastic Watch & Gainers ---
+# --- Side by Side Sections ---
 st.divider()
-st.subheader("⚠️ Drastic Watch & Top Moves")
-k1, k2, k3 = st.columns(3)
+col_left, col_right = st.columns(2)
 
-if not full_df.empty:
-    k1.write("**Top Gainers**")
-    k1.dataframe(full_df.sort_values(by="Change%", ascending=False).head(5)[["Stock", "Change%"]], hide_index=True)
-    
-    k2.write("**Top Losers**")
-    k2.dataframe(full_df.sort_values(by="Change%").head(5)[["Stock", "Change%"]], hide_index=True)
-    
-    k3.write("**3-Day Trend Alert**")
-    k3.dataframe(full_df[full_df["Trend"] != "Normal"][["Stock", "Trend"]], hide_index=True)
+with col_left:
+    st.write("### 🏢 Sector Performance")
+    sec_df = pd.DataFrame(sector_data).sort_values(by="Avg%", ascending=False)
+    st.table(sec_df)
 
-# --- Auto-Refresh JavaScript ---
-# এটি পেজটিকে প্রতি ১২০ সেকেন্ডে রিলোড করবে
-st.markdown("""
-    <script>
-    setTimeout(function(){
-       window.location.reload();
-    }, 120000);
-    </script>
-    """, unsafe_allow_html=True)
+with col_right:
+    st.write("### ⚠️ Drastic Watch (3-Day Trend)")
+    drastic = sig_df[sig_df["Trend"] != "Normal"][["Stock", "Trend"]]
+    st.table(drastic)
+
+# --- Export Section ---
+st.write("### 📂 Export Data")
+if not sig_df.empty:
+    csv = sig_df.to_csv(index=False).encode('utf-8')
+    st.download_button(label="DOWNLOAD EXCEL (CSV)", data=csv, file_name=f"Trade_{datetime.now().strftime('%d%m_%H%M')}.csv", mime="text/csv")
