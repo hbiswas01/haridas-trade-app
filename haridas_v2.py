@@ -92,7 +92,6 @@ css_string = (
     ".sector-content { padding: 8px; border-top: 1px solid #eee; display: flex; flex-wrap: wrap; gap: 5px; background: #fafafa; } "
     ".stock-chip { font-size: 10px; padding: 4px 6px; border-radius: 4px; border: 1px solid #ccc; background: #fff; text-decoration: none !important; font-weight: bold;} "
     ".calc-box { background: white; border: 1px solid #00ffd0; padding: 15px; border-radius: 8px; box-shadow: 0px 2px 8px rgba(0,0,0,0.1); margin-top: 15px;} "
-    
     "/* Momentum Dashboard Custom CSS Fixed For Clipping */"
     ".mdf-table { background-color: rgba(12, 14, 28, 0.95); border: 2px solid rgb(30, 80, 140); color: white; font-family: monospace; width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; margin-top: 10px; }"
     ".mdf-table th, .mdf-table td { border: 1px solid rgb(25, 65, 120); padding: 6px 4px; text-align: center; overflow: hidden; white-space: nowrap; }"
@@ -185,7 +184,7 @@ def get_dynamic_momentum(ticker, interval_yf):
 @st.cache_data(ttl=30, show_spinner=False)
 def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
     signals = []
-    tf_map_period = {"1m": "5d", "2m": "5d", "5m": "5d", "15m": "1mo", "30m": "1mo", "1h": "1mo", "1d": "1y"}
+    tf_map_period = {"1m": "5d", "3m": "5d", "5m": "5d", "15m": "1mo", "30m": "1mo", "1h": "1mo", "1d": "1y"}
     period = tf_map_period.get(interval, "1mo")
     
     def scan_stock(stock_symbol):
@@ -443,14 +442,25 @@ with st.sidebar:
         time.sleep(1)
         st.rerun()
 
-# --- Top Nav ---
+# --- 🚨 FIXED ZERO-LATENCY CLOCK (NO IFRAME BUGS) 🚨 ---
 top_nav_html = """
-<style>body { margin: 0; padding: 0; overflow: hidden; background: transparent; }</style>
-<div style="font-family: 'Segoe UI', sans-serif; background-color: #002b36; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #00ffd0; border-radius: 8px; box-shadow: 0px 4px 10px rgba(0,0,0,0.2);">
-    <div style="color:#00ffd0; font-weight:900; font-size:22px; letter-spacing:2px; text-transform:uppercase;">📊 HARIDAS NSE TERMINAL</div>
-    <div style="font-size: 14px; color: #ffeb3b; font-weight: bold; display: flex; align-items: center;">
-        <span style="background: #28a745; color: white; padding: 3px 10px; border-radius: 4px; margin-right: 15px;">LIVE MARKET (NSE)</span>
-        🕒 <span id="live_clock" style="margin-left: 5px;"></span> &nbsp;(IST)
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    body { margin: 0; padding: 0; background-color: transparent; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+    .nav { background-color: #002b36; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #00ffd0; border-radius: 8px; box-shadow: 0px 4px 10px rgba(0,0,0,0.2); }
+    .title { color:#00ffd0; font-weight:900; font-size:22px; letter-spacing:2px; text-transform:uppercase; }
+    .right-side { font-size: 14px; color: #ffeb3b; font-weight: bold; display: flex; align-items: center; }
+    .badge { background: #28a745; color: white; padding: 3px 10px; border-radius: 4px; margin-right: 15px; }
+</style>
+</head>
+<body>
+<div class="nav">
+    <div class="title">📊 HARIDAS NSE TERMINAL</div>
+    <div class="right-side">
+        <span class="badge">LIVE MARKET (NSE)</span>
+        <span id="live_clock">🕒 Loading...</span>
     </div>
 </div>
 <script>
@@ -460,13 +470,15 @@ top_nav_html = """
         var ist = new Date(utc + (3600000 * 5.5));
         var h = ist.getHours(); var m = ist.getMinutes(); var s = ist.getSeconds();
         h = (h < 10 ? "0" : "") + h; m = (m < 10 ? "0" : "") + m; s = (s < 10 ? "0" : "") + s;
-        document.getElementById("live_clock").innerText = h + ":" + m + ":" + s;
+        document.getElementById("live_clock").innerText = "🕒 " + h + ":" + m + ":" + s + " (IST)";
     }
     setInterval(updateClock, 1000);
     updateClock();
 </script>
+</body>
+</html>
 """
-components.html(top_nav_html, height=75)
+components.html(top_nav_html, height=70)
 
 col_ref1, col_ref2 = st.columns([8, 2])
 with col_ref2:
@@ -559,7 +571,7 @@ if page_selection == "📈 MAIN TERMINAL":
                 """
                 st.markdown(mdf_dashboard, unsafe_allow_html=True)
 
-            # 🚨 INSTANT PAPER TRADE FOR NSE 🚨
+            # 🚨 INSTANT PAPER TRADE WITH AUTO-QTY FOR NSE 🚨
             st.markdown("<div style='background: rgba(12, 14, 28, 0.95); padding: 10px; border-radius: 5px; border: 2px solid #00ffd0; margin-top: 15px;'>", unsafe_allow_html=True)
             st.markdown(f"<div style='color:#00ffd0; font-weight:bold; font-size:13px; text-align:center; margin-bottom:8px;'>⚡ PAPER TRADE: {clicked_stock}</div>", unsafe_allow_html=True)
             
@@ -572,30 +584,33 @@ if page_selection == "📈 MAIN TERMINAL":
                     t_side = st.selectbox("Action", ["BUY", "SHORT"])
                 with tc2:
                     t_price = st.number_input("Entry Price (₹)", value=float(live_price), format="%.2f")
-                    t_qty = st.number_input("Quantity", value=1, min_value=1)
+                    t_amt_inr = st.number_input("Capital (₹)", value=10000.0, min_value=100.0, step=1000.0)
+                    t_qty = int(t_amt_inr / t_price) if t_price > 0 else 0
+                    st.caption(f"Estimated Qty: **{t_qty}** Shares")
                 with tc3:
                     t_sl = st.number_input("Stop Loss (₹)", value=float(live_price * 0.99) if t_side=="BUY" else float(live_price * 1.01), format="%.2f")
                     t_tp = st.number_input("Target (₹)", value=float(live_price * 1.03) if t_side=="BUY" else float(live_price * 0.97), format="%.2f")
                 
                 trade_btn = st.form_submit_button("🚀 PLACE PAPER ORDER", use_container_width=True)
                 if trade_btn:
-                    if t_qty <= 0: st.error("Enter valid Qty")
+                    if t_qty <= 0: st.error("Capital is too low to buy 1 share")
                     elif t_price <= 0: st.error("Enter valid Price")
                     else:
                         ist_tz = pytz.timezone('Asia/Kolkata')
                         new_trade = {"Date": datetime.datetime.now(ist_tz).strftime("%Y-%m-%d %H:%M"), "Stock": clicked_stock, "Signal": t_side, "Entry": float(t_price), "SL": float(t_sl), "Target": float(t_tp), "Status": "RUNNING"}
                         st.session_state.active_trades.append(new_trade)
                         save_data(st.session_state.active_trades, ACTIVE_TRADES_FILE)
-                        st.success(f"✅ Trade Added to Tracker! (Qty: {t_qty})")
+                        st.success(f"✅ Trade Added! (Qty: {t_qty} shares)")
             st.markdown("</div>", unsafe_allow_html=True)
             
         st.markdown("<hr style='border: 2px solid #00ffd0; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
 
     # ------------------ REGULAR DASHBOARD ------------------
+    # 🚨 FIXED: SIGNAL TIMEFRAME MAIN SELECTOR 🚨
     st.markdown("<div style='background: rgba(12, 14, 28, 0.95); padding: 10px; border-radius: 5px; border: 1px solid #b0c4de; margin-bottom: 15px;'>", unsafe_allow_html=True)
     sig_tf_options = {"1m": "1m", "2m": "2m", "5m": "5m", "15m": "15m", "30m": "30m", "1H": "1h", "1D": "1d"}
-    selected_sig_tf = st.radio("⏳ **SELECT SIGNAL TIMEFRAME:**", list(sig_tf_options.keys()), horizontal=True, index=3, key="sig_tf_main_radio_nse")
+    selected_sig_tf = st.radio("⏳ **SELECT SIGNAL & SCANNER TIMEFRAME:**", list(sig_tf_options.keys()), horizontal=True, index=3, key="sig_tf_main_radio_nse")
     sig_interval = sig_tf_options[selected_sig_tf]
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -814,7 +829,7 @@ elif page_selection == "📊 Backtest Engine":
 # ==================== MENU 4: SETTINGS ====================
 elif page_selection == "⚙️ Scanner Settings":
     st.markdown("<div class='section-title'>⚙️ System Status</div>", unsafe_allow_html=True)
-    st.success("✅ Exclusive Indian Market (NSE) App \n\n ✅ Zero-Latency Clock Active \n\n ✅ Click-to-Open Deep Analysis Active \n\n ✅ Instant Paper Trade Panel Active")
+    st.success("✅ Exclusive Indian Market (NSE) App \n\n ✅ PERFECT Zero-Latency Clock Active \n\n ✅ Auto-Quantity Calculator (Capital ₹) \n\n ✅ Main Dashboard Signal Timeframe Selector Active")
 
 if st.session_state.auto_ref:
     time.sleep(refresh_time * 60)
