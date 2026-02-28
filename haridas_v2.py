@@ -1,12 +1,15 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import datetime
 import pytz
-import yfinance as yf
 import pandas as pd
 import time
 from concurrent.futures import ThreadPoolExecutor
 import os
+import yfinance as yf
+import numpy as np
 
+# --- 1. Page Configuration & Session State ---
 st.set_page_config(layout="wide", page_title="Haridas NSE Terminal", initial_sidebar_state="expanded")
 
 ACTIVE_TRADES_FILE = "nse_active_trades.csv"
@@ -50,17 +53,62 @@ def fmt_price(val):
         return f"{val:,.2f}" 
     except: return "0.00"
 
-def get_tv_link(ticker):
-    if ticker == "^BSESN": return "https://in.tradingview.com/chart/?symbol=BSE:SENSEX"
-    elif ticker == "^NSEI": return "https://in.tradingview.com/chart/?symbol=NSE:NIFTY"
-    elif ticker == "^NSEBANK": return "https://in.tradingview.com/chart/?symbol=NSE:BANKNIFTY"
-    elif ticker == "NIFTY_FIN_SERVICE.NS" or ticker == "FINNIFTY": return "https://in.tradingview.com/chart/?symbol=NSE:CNXFIN"
-    elif ticker == "^CNXIT": return "https://in.tradingview.com/chart/?symbol=NSE:CNXIT"
-    elif ticker == "INR=X": return "https://in.tradingview.com/chart/?symbol=FX_IDC:USDINR"
-    else:
-        sym = "BSE:" + ticker.replace(".NS", "")
-        return f"https://in.tradingview.com/chart/?symbol={sym}"
+def get_tv_symbol(ticker):
+    if ticker == "^BSESN": return "BSE:SENSEX"
+    elif ticker == "^NSEI": return "NSE:NIFTY"
+    elif ticker == "^NSEBANK": return "NSE:BANKNIFTY"
+    elif ticker == "NIFTY_FIN_SERVICE.NS" or ticker == "FINNIFTY": return "NSE:CNXFIN"
+    elif ticker == "^CNXIT": return "NSE:CNXIT"
+    elif ticker == "INR=X": return "FX_IDC:USDINR"
+    else: return f"NSE:{ticker.replace('.NS', '')}"
 
+def get_tv_link(ticker):
+    sym = get_tv_symbol(ticker)
+    return f"https://in.tradingview.com/chart/?symbol={sym}"
+
+def get_internal_link(ticker):
+    return f"?stock={ticker}"
+
+# --- 2. CSS ---
+css_string = (
+    "<style>"
+    "#MainMenu {visibility: hidden;} footer {visibility: hidden;} .stApp { background-color: #f0f4f8; font-family: 'Segoe UI', sans-serif; } "
+    ".block-container { padding-top: 3rem !important; padding-bottom: 1rem !important; padding-left: 1rem !important; padding-right: 1rem !important; } "
+    ".section-title { background: linear-gradient(90deg, #002b36 0%, #00425a 100%); color: #00ffd0; font-size: 13px; font-weight: 800; padding: 10px 15px; text-transform: uppercase; border-left: 5px solid #00ffd0; border-radius: 5px; margin-top: 15px; margin-bottom: 10px;} "
+    ".table-container { overflow-x: auto; width: 100%; border-radius: 5px; } "
+    ".v38-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 11px; color: black; background: white; border: 1px solid #b0c4de; margin-bottom: 10px; white-space: nowrap; } "
+    ".v38-table th { background-color: #4f81bd; color: white; padding: 8px; border: 1px solid #b0c4de; font-weight: bold; } "
+    ".v38-table td { padding: 8px; border: 1px solid #b0c4de; } .v38-table a { text-decoration: none; cursor: pointer; color: #1a73e8 !important; } "
+    ".idx-container { display: flex; justify-content: space-between; background: white; border: 1px solid #b0c4de; padding: 5px; margin-bottom: 10px; flex-wrap: wrap; border-radius: 5px; } "
+    ".idx-box { text-align: center; width: 31%; border-right: 1px solid #eee; padding: 5px; min-width: 100px; margin-bottom: 5px; } "
+    ".idx-box a { text-decoration: none; font-size: 11px; color: #1a73e8; font-weight: bold; } "
+    ".adv-dec-container { background: white; border: 1px solid #b0c4de; padding: 10px; margin-bottom: 10px; text-align: center; border-radius: 5px; } "
+    ".adv-dec-bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; margin: 8px 0; border: 1px solid #ccc; } "
+    ".bar-green { background-color: #2e7d32; } .bar-red { background-color: #d32f2f; } "
+    ".bar-bg { background: #e0e0e0; width: 100%; height: 14px; min-width: 50px; border-radius: 3px; } "
+    ".bar-fg-green { background: #276a44; height: 100%; border-radius: 3px; } .bar-fg-red { background: #8b0000; height: 100%; border-radius: 3px; } "
+    "details.sector-details { border: 1px solid #b0c4de; margin-bottom: 5px; background: white; border-radius: 4px; } "
+    "summary.sector-summary { padding: 8px; font-weight: bold; cursor: pointer; display: flex; align-items: center; background-color: #f4f6f9; font-size: 11px; } "
+    ".sector-content { padding: 8px; border-top: 1px solid #eee; display: flex; flex-wrap: wrap; gap: 5px; background: #fafafa; } "
+    ".stock-chip { font-size: 10px; padding: 4px 6px; border-radius: 4px; border: 1px solid #ccc; background: #fff; text-decoration: none !important; font-weight: bold;} "
+    ".calc-box { background: white; border: 1px solid #00ffd0; padding: 15px; border-radius: 8px; box-shadow: 0px 2px 8px rgba(0,0,0,0.1); margin-top: 15px;} "
+    
+    "/* Momentum Dashboard Custom CSS Fixed For Clipping */"
+    ".mdf-table { background-color: rgba(12, 14, 28, 0.95); border: 2px solid rgb(30, 80, 140); color: white; font-family: monospace; width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; margin-top: 10px; }"
+    ".mdf-table th, .mdf-table td { border: 1px solid rgb(25, 65, 120); padding: 6px 4px; text-align: center; overflow: hidden; white-space: nowrap; }"
+    ".mdf-header { background-color: rgba(8, 10, 22, 0.9); color: rgb(65, 195, 115); font-weight: bold; font-size: 14px; }"
+    ".mdf-label { color: rgb(120, 122, 142); text-align: left !important; font-size: 11px; }"
+    ".mdf-value { color: rgb(65, 195, 115); }"
+    ".mdf-right { text-align: right !important; }"
+    ".mdf-white { color: rgb(222, 224, 238); }"
+    ".mdf-cyan { color: rgb(60, 200, 255) !important; }"
+    ".mdf-orange { color: rgb(255, 130, 40) !important; }"
+    ".mdf-red { color: rgb(255, 60, 60) !important; }"
+    "</style>"
+)
+st.markdown(css_string, unsafe_allow_html=True)
+
+# --- 3. HELPER FUNCTIONS & MATH ---
 @st.cache_data(ttl=15, show_spinner=False)
 def fetch_live_data(ticker_symbol):
     try:
@@ -80,39 +128,155 @@ def fetch_live_data(ticker_symbol):
         return (0.0, 0.0, 0.0)
     except: return (0.0, 0.0, 0.0)
 
-@st.cache_data(ttl=60, show_spinner=False)
-def calc_sector_perf(sector_dict, ignore_keys=[]):
-    results = []
-    for sector, items in sector_dict.items():
-        if sector in ignore_keys: continue
-        total_pct, valid = 0, 0
-        stock_details = []
-        for ticker in items:
-            try:
-                ltp, _, pct = fetch_live_data(ticker)
-                if ltp > 0: 
-                    total_pct += pct
-                    valid += 1
-                    stock_details.append({"Stock": ticker, "Pct": pct})
-            except: continue
-        if valid > 0:
-            avg_pct = round(total_pct / valid, 2)
-            stock_details = sorted(stock_details, key=lambda x: x['Pct'], reverse=True)
-            results.append({"Sector": sector, "Pct": avg_pct, "Width": max(min(abs(avg_pct) * 20, 100), 5), "Stocks": stock_details})
-    return sorted(results, key=lambda x: x['Pct'], reverse=True)
+def calculate_mdf_physics(df):
+    if df.empty or len(df) < 20: 
+        return 50, "NEUTRAL", 2.5, 8.0, 0, 15.0, 100, 10, 50
 
-@st.cache_data(ttl=60, show_spinner=False)
-def calc_market_breadth(item_list):
-    adv, dec = 0, 0
-    def fetch_chg(ticker): 
-        try: return fetch_live_data(ticker)[2]
-        except: return 0.0
-    with ThreadPoolExecutor(max_workers=40) as executor:
-        results = list(executor.map(fetch_chg, item_list))
-    for pct in results:
-        if pct > 0: adv += 1
-        elif pct < 0: dec += 1
-    return adv, dec
+    closes = df['Close'].values
+    volumes = df['Volume'].values
+
+    deltas = np.diff(closes)
+    up = np.where(deltas > 0, deltas, 0)
+    down = np.where(deltas < 0, -deltas, 0)
+    
+    roll_up = np.mean(up[-14:]) if len(up) >= 14 else np.mean(up)
+    roll_down = np.mean(down[-14:]) if len(down) >= 14 else np.mean(down)
+    
+    rs = roll_up / roll_down if roll_down != 0 else 1.0
+    rsi = 100.0 - (100.0 / (1.0 + rs)) if roll_down != 0 else 100.0
+
+    momentum_strength = abs(rsi - 50) / 50.0  
+    energy_pct = int(momentum_strength * 100)
+    energy_pct = max(5, min(100, energy_pct))
+
+    phase = "BULL" if rsi >= 50 else "BEAR"
+
+    e0 = round(1.0 + (momentum_strength * 4.0), 2)
+    half_life = round(max(3.0, 15.0 - (momentum_strength * 10)), 1)
+    
+    elp_bars = 0
+    for i in range(1, min(15, len(closes))):
+        is_bull_candle = closes[-i] >= closes[-i-1]
+        if (phase == "BULL" and not is_bull_candle) or (phase == "BEAR" and is_bull_candle):
+            break
+        elp_bars += 1
+        
+    decay_eta = round(max(0.0, (half_life * 3.0) - elp_bars), 1)
+
+    vol_mean = np.mean(volumes[-20:]) + 1e-9
+    vol_spike = volumes[-1] / vol_mean
+    
+    impulses = int(min(max(vol_spike * 150, 50), 999))
+    exhaustions = int(min(max((1.0 - momentum_strength) * 80, 5), 150))
+    divergences = int(min(max(abs(rsi - 50) * 1.5, 10), 200))
+
+    return energy_pct, phase, e0, half_life, elp_bars, decay_eta, impulses, exhaustions, divergences
+
+def get_dynamic_momentum(ticker, interval_yf):
+    try:
+        tf_map_period = {"1m": "5d", "2m": "5d", "5m": "5d", "15m": "1mo", "30m": "1mo", "1h": "1mo", "1d": "1y"}
+        period = tf_map_period.get(interval_yf, "1mo")
+        df = yf.Ticker(ticker).history(period=period, interval=interval_yf)
+        if not df.empty and len(df) >= 20:
+            return calculate_mdf_physics(df)
+    except: pass
+    return 50, "NEUTRAL", 2.5, 8.0, 0, 15.0, 100, 10, 50
+
+@st.cache_data(ttl=30, show_spinner=False)
+def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
+    signals = []
+    tf_map_period = {"1m": "5d", "2m": "5d", "5m": "5d", "15m": "1mo", "30m": "1mo", "1h": "1mo", "1d": "1y"}
+    period = tf_map_period.get(interval, "1mo")
+    
+    def scan_stock(stock_symbol):
+        try:
+            df = yf.Ticker(stock_symbol).history(period=period, interval=interval)
+            if df.empty or len(df) < 20: return None
+            
+            # Using 10-Period Donchian Breakout
+            df['Upper_10'] = df['High'].rolling(10).max().shift(1)
+            df['Lower_10'] = df['Low'].rolling(10).min().shift(1)
+            df['SL_Long'] = df['Low'].rolling(8).min().shift(1)
+            df['SL_Short'] = df['High'].rolling(8).max().shift(1)
+            
+            energy_pct, phase, _, _, _, _, _, _, _ = calculate_mdf_physics(df)
+            
+            current_close = df['Close'].iloc[-1]
+            current_high = df['High'].iloc[-1]
+            current_low = df['Low'].iloc[-1]
+            upper_10 = df['Upper_10'].iloc[-1]
+            lower_10 = df['Lower_10'].iloc[-1]
+            
+            signal = None
+            entry = current_close
+            sl = 0.0
+            
+            # Match Breakout with MDF Phase
+            if current_high >= upper_10 and phase == "BULL":
+                signal = "BUY"
+                sl = df['SL_Long'].iloc[-1]
+            elif current_low <= lower_10 and phase == "BEAR":
+                signal = "SHORT"
+                sl = df['SL_Short'].iloc[-1]
+                
+            if sentiment == "BULLISH" and signal == "SHORT": return None
+            if sentiment == "BEARISH" and signal == "BUY": return None
+
+            if signal and sl > 0:
+                risk = abs(entry - sl)
+                target = entry + (risk * 3) if signal == "BUY" else entry - (risk * 3)
+                if risk > 0:
+                    return {"Stock": stock_symbol, "Signal": signal, "Entry": float(entry), "LTP": float(current_close), "SL": float(sl), "Target": float(target), "Time": datetime.datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%H:%M')}
+        except: return None
+        return None
+
+    with ThreadPoolExecutor(max_workers=30) as executor:
+        results = list(executor.map(scan_stock, stock_list))
+    for res in results:
+        if res is not None: signals.append(res)
+    return signals
+
+def process_auto_trades(live_signals):
+    ist_timezone = pytz.timezone('Asia/Kolkata')
+    current_time_str = datetime.datetime.now(ist_timezone).strftime("%Y-%m-%d %H:%M")
+    active_stocks = [t['Stock'] for t in st.session_state.active_trades]
+
+    for sig in live_signals:
+        if sig['Stock'] not in active_stocks:
+            is_triggered = False
+            if sig['Signal'] == 'BUY' and sig['LTP'] >= sig['Entry']: is_triggered = True
+            elif sig['Signal'] == 'SHORT' and sig['LTP'] <= sig['Entry']: is_triggered = True
+            
+            if is_triggered:
+                new_trade = {"Date": current_time_str, "Stock": sig['Stock'], "Signal": sig['Signal'], "Entry": float(sig['Entry']), "SL": float(sig['SL']), "Target": float(sig['Target']), "Status": "RUNNING"}
+                st.session_state.active_trades.append(new_trade)
+                save_data(st.session_state.active_trades, ACTIVE_TRADES_FILE)
+
+    trades_to_remove = []
+    for trade in st.session_state.active_trades:
+        res = fetch_live_data(trade['Stock'])
+        ltp = res[0]
+        if ltp == 0.0: continue
+        close_reason = None
+        exit_price = 0.0
+
+        if trade['Signal'] == 'BUY':
+            if ltp <= float(trade['SL']): close_reason, exit_price = "🛑 SL HIT", trade['SL']
+            elif ltp >= float(trade['Target']): close_reason, exit_price = "🎯 TARGET HIT", trade['Target']
+        elif trade['Signal'] == 'SHORT':
+            if ltp >= float(trade['SL']): close_reason, exit_price = "🛑 SL HIT", trade['SL']
+            elif ltp <= float(trade['Target']): close_reason, exit_price = "🎯 TARGET HIT", trade['Target']
+
+        if close_reason:
+            pnl_pct = ((exit_price - trade['Entry']) / trade['Entry']) * 100 if trade['Signal'] == 'BUY' else ((trade['Entry'] - exit_price) / trade['Entry']) * 100
+            completed_trade = {"Date": current_time_str, "Stock": trade['Stock'], "Signal": trade['Signal'], "Entry": trade['Entry'], "Exit": exit_price, "Status": close_reason, "P&L %": round(pnl_pct, 2)}
+            st.session_state.trade_history.append(completed_trade)
+            trades_to_remove.append(trade)
+
+    if trades_to_remove:
+        st.session_state.active_trades = [t for t in st.session_state.active_trades if t not in trades_to_remove]
+        save_data(st.session_state.active_trades, ACTIVE_TRADES_FILE)
+        save_data(st.session_state.trade_history, HISTORY_TRADES_FILE)
 
 @st.cache_data(ttl=120, show_spinner=False)
 def calc_dynamic_movers(item_list):
@@ -149,91 +313,38 @@ def calc_dynamic_movers(item_list):
     return sorted(gainers, key=lambda x: x['Pct'], reverse=True)[:5], sorted(losers, key=lambda x: x['Pct'])[:5], trends
 
 @st.cache_data(ttl=60, show_spinner=False)
-def run_nse_strategy(stock_list, sentiment="BOTH"):
-    signals = []
-    for stock_symbol in stock_list:
-        try:
-            df = yf.Ticker(stock_symbol).history(period="5d", interval="5m") 
-            if df.empty or len(df) < 25: continue
-            df['SMA_20'] = df['Close'].rolling(window=20).mean()
-            df['STD_20'] = df['Close'].rolling(window=20).std()
-            df['Upper_BB'] = df['SMA_20'] + (2 * df['STD_20'])
-            df['Lower_BB'] = df['SMA_20'] - (2 * df['STD_20'])
-            df['HA_Close'] = (df['Open'] + df['High'] + df['Low'] + df['Close']) / 4
-            ha_open = [df['Open'].iloc[0]]
-            for i in range(1, len(df)): ha_open.append((ha_open[i-1] + df['HA_Close'].iloc[i-1]) / 2)
-            df['HA_Open'] = ha_open
-            df['HA_High'] = df[['High', 'HA_Open', 'HA_Close']].max(axis=1)
-            df['HA_Low'] = df[['Low', 'HA_Open', 'HA_Close']].min(axis=1)
-            df = df.dropna()
-            if len(df) < 3: continue
-            
-            completed_idx = len(df) - 2
-            alert_candle, prev_candle, current_ltp = df.iloc[completed_idx], df.iloc[completed_idx - 1], df['Close'].iloc[-1]
-            signal = None
-            entry = sl = target_bb = 0.0
-            
-            if (prev_candle['HA_High'] >= prev_candle['Upper_BB']) and (alert_candle['HA_Close'] < alert_candle['HA_Open']) and (alert_candle['HA_High'] < alert_candle['Upper_BB']):
-                signal, entry, sl, target_bb = "SHORT", alert_candle['Low'] - 0.10, alert_candle['High'] + 0.10, alert_candle['Lower_BB']
-            elif (prev_candle['HA_Low'] <= prev_candle['Lower_BB']) and (alert_candle['HA_Close'] > alert_candle['HA_Open']) and (alert_candle['HA_Low'] > alert_candle['Lower_BB']):
-                signal, entry, sl, target_bb = "BUY", alert_candle['High'] + 0.10, alert_candle['Low'] - 0.10, alert_candle['Upper_BB']
-                
-            if sentiment == "BULLISH" and signal == "SHORT": continue
-            if sentiment == "BEARISH" and signal == "BUY": continue
+def calc_market_breadth(item_list):
+    adv, dec = 0, 0
+    def fetch_chg(ticker): 
+        try: return fetch_live_data(ticker)[2]
+        except: return 0.0
+    with ThreadPoolExecutor(max_workers=40) as executor:
+        results = list(executor.map(fetch_chg, item_list))
+    for pct in results:
+        if pct > 0: adv += 1
+        elif pct < 0: dec += 1
+    return adv, dec
 
-            if signal:
-                risk = abs(entry - sl)
-                if risk > 0:
-                    signals.append({
-                        "Stock": stock_symbol, "Entry": float(entry), "LTP": float(current_ltp),
-                        "Signal": signal, "SL": float(sl), "Target(BB)": float(target_bb), 
-                        "T2(1:3)": float(entry - (risk*3) if signal=="SHORT" else entry + (risk*3)),
-                        "Time": alert_candle.name.strftime('%H:%M')
-                    })
-        except: continue
-    return signals
-
-def process_auto_trades(live_signals):
-    ist_timezone = pytz.timezone('Asia/Kolkata')
-    current_time_str = datetime.datetime.now(ist_timezone).strftime("%Y-%m-%d %H:%M")
-    active_stocks = [t['Stock'] for t in st.session_state.active_trades]
-
-    for sig in live_signals:
-        if sig['Stock'] not in active_stocks:
-            is_triggered = False
-            if sig['Signal'] == 'BUY' and sig['LTP'] >= sig['Entry']: is_triggered = True
-            elif sig['Signal'] == 'SHORT' and sig['LTP'] <= sig['Entry']: is_triggered = True
-            
-            if is_triggered:
-                new_trade = {"Date": current_time_str, "Stock": sig['Stock'], "Signal": sig['Signal'], "Entry": float(sig['Entry']), "SL": float(sig['SL']), "Target": float(sig['T2(1:3)']), "Status": "RUNNING"}
-                st.session_state.active_trades.append(new_trade)
-                save_data(st.session_state.active_trades, ACTIVE_TRADES_FILE)
-
-    trades_to_remove = []
-    for trade in st.session_state.active_trades:
-        res = fetch_live_data(trade['Stock'])
-        ltp = res[0]
-        if ltp == 0.0: continue
-        close_reason = None
-        exit_price = 0.0
-
-        if trade['Signal'] == 'BUY':
-            if ltp <= float(trade['SL']): close_reason, exit_price = "🛑 SL HIT", trade['SL']
-            elif ltp >= float(trade['Target']): close_reason, exit_price = "🎯 TARGET HIT", trade['Target']
-        elif trade['Signal'] == 'SHORT':
-            if ltp >= float(trade['SL']): close_reason, exit_price = "🛑 SL HIT", trade['SL']
-            elif ltp <= float(trade['Target']): close_reason, exit_price = "🎯 TARGET HIT", trade['Target']
-
-        if close_reason:
-            pnl_pct = ((exit_price - trade['Entry']) / trade['Entry']) * 100 if trade['Signal'] == 'BUY' else ((trade['Entry'] - exit_price) / trade['Entry']) * 100
-            completed_trade = {"Date": current_time_str, "Stock": trade['Stock'], "Signal": trade['Signal'], "Entry": trade['Entry'], "Exit": exit_price, "Status": close_reason, "P&L %": round(pnl_pct, 2)}
-            st.session_state.trade_history.append(completed_trade)
-            trades_to_remove.append(trade)
-
-    if trades_to_remove:
-        st.session_state.active_trades = [t for t in st.session_state.active_trades if t not in trades_to_remove]
-        save_data(st.session_state.active_trades, ACTIVE_TRADES_FILE)
-        save_data(st.session_state.trade_history, HISTORY_TRADES_FILE)
+@st.cache_data(ttl=60, show_spinner=False)
+def calc_sector_perf(sector_dict, ignore_keys=[]):
+    results = []
+    for sector, items in sector_dict.items():
+        if sector in ignore_keys: continue
+        total_pct, valid = 0, 0
+        stock_details = []
+        for ticker in items:
+            try:
+                ltp, _, pct = fetch_live_data(ticker)
+                if ltp > 0: 
+                    total_pct += pct
+                    valid += 1
+                    stock_details.append({"Stock": ticker, "Pct": pct})
+            except: continue
+        if valid > 0:
+            avg_pct = round(total_pct / valid, 2)
+            stock_details = sorted(stock_details, key=lambda x: x['Pct'], reverse=True)
+            results.append({"Sector": sector, "Pct": avg_pct, "Width": max(min(abs(avg_pct) * 20, 100), 5), "Stocks": stock_details})
+    return sorted(results, key=lambda x: x['Pct'], reverse=True)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def scan_pre_market(stock_list):
@@ -286,31 +397,6 @@ def scan_oi_setup(item_list):
     with ThreadPoolExecutor(max_workers=40) as executor: results = list(executor.map(fetch_oi, item_list))
     return [r for r in results if r]
 
-# --- 4. CSS ---
-css_string = (
-    "<style>"
-    "#MainMenu {visibility: hidden;} footer {visibility: hidden;} .stApp { background-color: #f0f4f8; font-family: 'Segoe UI', sans-serif; } "
-    ".block-container { padding-top: 3rem !important; padding-bottom: 1rem !important; padding-left: 1rem !important; padding-right: 1rem !important; } "
-    ".top-nav { background-color: #002b36; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #00ffd0; border-radius: 8px; margin-bottom: 10px; box-shadow: 0px 4px 10px rgba(0,0,0,0.2); } "
-    ".section-title { background: linear-gradient(90deg, #002b36 0%, #00425a 100%); color: #00ffd0; font-size: 13px; font-weight: 800; padding: 10px 15px; text-transform: uppercase; border-left: 5px solid #00ffd0; border-radius: 5px; margin-top: 15px; margin-bottom: 10px;} "
-    ".table-container { overflow-x: auto; width: 100%; border-radius: 5px; } "
-    ".v38-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 11px; color: black; background: white; border: 1px solid #b0c4de; margin-bottom: 10px; white-space: nowrap; } "
-    ".v38-table th { background-color: #4f81bd; color: white; padding: 8px; border: 1px solid #b0c4de; font-weight: bold; } "
-    ".v38-table td { padding: 8px; border: 1px solid #b0c4de; } .v38-table a { text-decoration: none; cursor: pointer; color: #1a73e8 !important; } "
-    ".idx-container { display: flex; justify-content: space-between; background: white; border: 1px solid #b0c4de; padding: 5px; margin-bottom: 10px; flex-wrap: wrap; border-radius: 5px; } "
-    ".idx-box { text-align: center; width: 31%; border-right: 1px solid #eee; padding: 5px; min-width: 100px; margin-bottom: 5px; } "
-    ".adv-dec-container { background: white; border: 1px solid #b0c4de; padding: 10px; margin-bottom: 10px; text-align: center; border-radius: 5px; } "
-    ".adv-dec-bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; margin: 8px 0; border: 1px solid #ccc; } "
-    ".bar-green { background-color: #2e7d32; } .bar-red { background-color: #d32f2f; } "
-    ".bar-bg { background: #e0e0e0; width: 100%; height: 14px; min-width: 50px; border-radius: 3px; } "
-    ".bar-fg-green { background: #276a44; height: 100%; border-radius: 3px; } .bar-fg-red { background: #8b0000; height: 100%; border-radius: 3px; } "
-    "details.sector-details { border: 1px solid #b0c4de; margin-bottom: 5px; background: white; border-radius: 4px; } "
-    "summary.sector-summary { padding: 8px; font-weight: bold; cursor: pointer; display: flex; align-items: center; background-color: #f4f6f9; font-size: 11px; } "
-    ".sector-content { padding: 8px; border-top: 1px solid #eee; display: flex; flex-wrap: wrap; gap: 5px; background: #fafafa; } "
-    ".stock-chip { font-size: 10px; padding: 4px 6px; border-radius: 4px; border: 1px solid #ccc; background: #fff; text-decoration: none !important; font-weight: bold;} "
-    "</style>"
-)
-st.markdown(css_string, unsafe_allow_html=True)
 
 # --- Sidebar ---
 with st.sidebar:
@@ -358,24 +444,29 @@ with st.sidebar:
         st.rerun()
 
 # --- Top Nav ---
-ist_timezone = pytz.timezone('Asia/Kolkata')
-curr_time = datetime.datetime.now(ist_timezone)
-t_915 = curr_time.replace(hour=9, minute=15, second=0, microsecond=0)
-t_1530 = curr_time.replace(hour=15, minute=30, second=0, microsecond=0)
-
-if curr_time < t_915: session, session_color = "PRE-MARKET", "#ff9800" 
-elif curr_time <= t_1530: session, session_color = "LIVE MARKET", "#28a745" 
-else: session, session_color = "POST MARKET", "#dc3545" 
-
-st.markdown(f"""
-<div class='top-nav'>
-    <div style='color:#00ffd0; font-weight:900; font-size:22px; letter-spacing:2px; text-transform:uppercase;'>📊 HARIDAS NSE TERMINAL</div>
-    <div style='font-size: 14px; color: #ffeb3b; font-weight: bold; display: flex; align-items: center;'>
-        <span style='background: {session_color}; color: white; padding: 3px 10px; border-radius: 4px; margin-right: 15px;'>{session}</span>
-        🕒 {curr_time.strftime('%H:%M:%S')} (IST)
+top_nav_html = """
+<style>body { margin: 0; padding: 0; overflow: hidden; background: transparent; }</style>
+<div style="font-family: 'Segoe UI', sans-serif; background-color: #002b36; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #00ffd0; border-radius: 8px; box-shadow: 0px 4px 10px rgba(0,0,0,0.2);">
+    <div style="color:#00ffd0; font-weight:900; font-size:22px; letter-spacing:2px; text-transform:uppercase;">📊 HARIDAS NSE TERMINAL</div>
+    <div style="font-size: 14px; color: #ffeb3b; font-weight: bold; display: flex; align-items: center;">
+        <span style="background: #28a745; color: white; padding: 3px 10px; border-radius: 4px; margin-right: 15px;">LIVE MARKET (NSE)</span>
+        🕒 <span id="live_clock" style="margin-left: 5px;"></span> &nbsp;(IST)
     </div>
 </div>
-""", unsafe_allow_html=True)
+<script>
+    function updateClock() {
+        var now = new Date();
+        var utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        var ist = new Date(utc + (3600000 * 5.5));
+        var h = ist.getHours(); var m = ist.getMinutes(); var s = ist.getSeconds();
+        h = (h < 10 ? "0" : "") + h; m = (m < 10 ? "0" : "") + m; s = (s < 10 ? "0" : "") + s;
+        document.getElementById("live_clock").innerText = h + ":" + m + ":" + s;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+</script>
+"""
+components.html(top_nav_html, height=75)
 
 col_ref1, col_ref2 = st.columns([8, 2])
 with col_ref2:
@@ -383,12 +474,136 @@ with col_ref2:
         st.cache_data.clear()
         st.rerun()
 
+# ==================== MENU 1: MAIN TERMINAL ====================
 if page_selection == "📈 MAIN TERMINAL":
-    with st.spinner(f"Scanning 5m HA Charts (Sentiment: {user_sentiment})..."): 
-        live_signals = run_nse_strategy(current_watchlist, user_sentiment)
+
+    # 🚨 CLICK-TO-OPEN DEEP ANALYSIS CHART & PAPER TRADE EXECUTION 🚨
+    clicked_stock = st.query_params.get("stock")
+    if clicked_stock and clicked_stock in ALL_STOCKS:
+        st.markdown(f"<div class='section-title' style='background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%); color: white; border-left: 5px solid #00ffd0;'>🔬 DEEP ANALYSIS & PAPER TRADE: {clicked_stock}</div>", unsafe_allow_html=True)
+        
+        da_c1, da_c2 = st.columns([1, 3])
+        with da_c1:
+            if st.button("❌ CLOSE CHART & RETURN", use_container_width=True, type="primary"):
+                st.query_params.clear()
+                st.rerun()
+        with da_c2:
+            tf_options_chart = {"1m": ("1", "1m"), "2m": ("2", "2m"), "5m": ("5", "5m"), "15m": ("15", "15m"), "30m": ("30", "30m"), "1H": ("60", "1h"), "1D": ("D", "1d")}
+            selected_chart_tf = st.radio("Chart Timeframe:", list(tf_options_chart.keys()), horizontal=True, index=3, key="tf_select_radio_nse", label_visibility="collapsed")
+            tv_interval, yf_interval = tf_options_chart[selected_chart_tf]
+        
+        tv_symbol = get_tv_symbol(clicked_stock)
+        col_chart, col_dash = st.columns([3, 1])
+
+        with col_chart:
+            tv_widget = f"""
+            <div class="tradingview-widget-container" style="height:500px;width:100%">
+              <div id="tradingview_dynamic" style="height:100%;width:100%"></div>
+              <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+              <script type="text/javascript">
+              new TradingView.widget({{
+                "autosize": true,
+                "symbol": "{tv_symbol}",
+                "interval": "{tv_interval}",
+                "timezone": "Asia/Kolkata",
+                "theme": "dark",
+                "style": "1",
+                "locale": "en",
+                "enable_publishing": false,
+                "backgroundColor": "#0E1117",
+                "gridColor": "#1f293d",
+                "hide_top_toolbar": false,
+                "hide_legend": false,
+                "save_image": false,
+                "container_id": "tradingview_dynamic"
+              }});
+              </script>
+            </div>
+            """
+            components.html(tv_widget, height=500)
+
+        with col_dash:
+            with st.spinner("Analyzing Physics..."):
+                energy_pct, phase, e0, half_life, elp_bars, decay_eta, impulses, exhaustions, divergences = get_dynamic_momentum(clicked_stock, yf_interval)
+                
+                phase_color = "mdf-cyan" if phase == "BULL" else "mdf-orange"
+                filled_bars = int((energy_pct / 100.0) * 10)
+                energy_bar = "█" * filled_bars + "░" * (10 - filled_bars)
+                
+                e0_cls = "Extreme" if e0 > 3.5 else "Strong" if e0 > 2.5 else "Moderate" if e0 > 1.5 else "Light"
+                eta_blocks = int(min(decay_eta / 10.0, 1.0) * 8) if decay_eta > 0 else 0
+                eta_vis = "▮" * eta_blocks + "▯" * (8 - eta_blocks)
+                
+                spark = ""
+                for k in range(20):
+                    t = (k / 19.0) * (max(half_life, 1.0) * 3.0)
+                    s_e = e0 * np.exp(-(np.log(2)/max(half_life, 1.0)) * t)
+                    s_n = s_e / max(e0, 0.001) 
+                    spark += "▇" if s_n > 0.85 else "▆" if s_n > 0.7 else "▅" if s_n > 0.55 else "▄" if s_n > 0.4 else "▃" if s_n > 0.25 else "▂" if s_n > 0.1 else "▁" if s_n > 0.02 else "·"
+                
+                energy_color = 'rgb(65,195,115)' if phase == 'BULL' else 'rgb(255,130,40)'
+
+                mdf_dashboard = f"""
+                <table class="mdf-table">
+                    <colgroup><col width="30%"/><col width="45%"/><col width="25%"/></colgroup>
+                    <tr><td colspan="3" class="mdf-header">MOMENTUM DECAY FIELD</td></tr>
+                    <tr><td class="mdf-label">ENERGY</td><td class="mdf-value" style="color: {energy_color}">{energy_bar}</td><td class="mdf-right mdf-value" style="color: {energy_color}">{energy_pct}%</td></tr>
+                    <tr><td class="mdf-label">PHASE</td><td class="mdf-value" style="color: {energy_color}">CHARGED</td><td class="mdf-right {phase_color}">{phase}</td></tr>
+                    <tr><td class="mdf-label">E0 INITIAL</td><td class="mdf-white">{e0:.2f}</td><td class="mdf-right mdf-cyan">{e0_cls}</td></tr>
+                    <tr><td class="mdf-label">HALF-LIFE</td><td class="mdf-white">{half_life} bars</td><td class="mdf-right mdf-label">ELP {elp_bars}</td></tr>
+                    <tr><td class="mdf-label">ETA TO EXH</td><td class="mdf-orange">{decay_eta} bars</td><td class="mdf-right mdf-orange" style="font-size:10px;">{eta_vis}</td></tr>
+                    <tr><td class="mdf-label">DECAY CURVE</td><td class="mdf-value" style="font-size:10px; letter-spacing: -1px; color:{energy_color}">{spark}</td><td class="mdf-right mdf-label">NOW >></td></tr>
+                    <tr><td class="mdf-label" style="text-align:center !important;">IMPULSES</td><td class="mdf-label" style="text-align:center !important;">EXHAUSTIONS</td><td class="mdf-label" style="text-align:center !important;">DIVERGENCES</td></tr>
+                    <tr><td class="mdf-white">{impulses}</td><td style="color:rgb(255, 195, 0);">{exhaustions}</td><td style="color:rgb(255, 120, 0);">{divergences}</td></tr>
+                </table>
+                """
+                st.markdown(mdf_dashboard, unsafe_allow_html=True)
+
+            # 🚨 INSTANT PAPER TRADE FOR NSE 🚨
+            st.markdown("<div style='background: rgba(12, 14, 28, 0.95); padding: 10px; border-radius: 5px; border: 2px solid #00ffd0; margin-top: 15px;'>", unsafe_allow_html=True)
+            st.markdown(f"<div style='color:#00ffd0; font-weight:bold; font-size:13px; text-align:center; margin-bottom:8px;'>⚡ PAPER TRADE: {clicked_stock}</div>", unsafe_allow_html=True)
+            
+            live_price = fetch_live_data(clicked_stock)[0]
+            if live_price == 0: live_price = 100.0 
+            
+            with st.form("paper_trade_form"):
+                tc1, tc2, tc3 = st.columns(3)
+                with tc1:
+                    t_side = st.selectbox("Action", ["BUY", "SHORT"])
+                with tc2:
+                    t_price = st.number_input("Entry Price (₹)", value=float(live_price), format="%.2f")
+                    t_qty = st.number_input("Quantity", value=1, min_value=1)
+                with tc3:
+                    t_sl = st.number_input("Stop Loss (₹)", value=float(live_price * 0.99) if t_side=="BUY" else float(live_price * 1.01), format="%.2f")
+                    t_tp = st.number_input("Target (₹)", value=float(live_price * 1.03) if t_side=="BUY" else float(live_price * 0.97), format="%.2f")
+                
+                trade_btn = st.form_submit_button("🚀 PLACE PAPER ORDER", use_container_width=True)
+                if trade_btn:
+                    if t_qty <= 0: st.error("Enter valid Qty")
+                    elif t_price <= 0: st.error("Enter valid Price")
+                    else:
+                        ist_tz = pytz.timezone('Asia/Kolkata')
+                        new_trade = {"Date": datetime.datetime.now(ist_tz).strftime("%Y-%m-%d %H:%M"), "Stock": clicked_stock, "Signal": t_side, "Entry": float(t_price), "SL": float(t_sl), "Target": float(t_tp), "Status": "RUNNING"}
+                        st.session_state.active_trades.append(new_trade)
+                        save_data(st.session_state.active_trades, ACTIVE_TRADES_FILE)
+                        st.success(f"✅ Trade Added to Tracker! (Qty: {t_qty})")
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+        st.markdown("<hr style='border: 2px solid #00ffd0; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+
+
+    # ------------------ REGULAR DASHBOARD ------------------
+    st.markdown("<div style='background: rgba(12, 14, 28, 0.95); padding: 10px; border-radius: 5px; border: 1px solid #b0c4de; margin-bottom: 15px;'>", unsafe_allow_html=True)
+    sig_tf_options = {"1m": "1m", "2m": "2m", "5m": "5m", "15m": "15m", "30m": "30m", "1H": "1h", "1D": "1d"}
+    selected_sig_tf = st.radio("⏳ **SELECT SIGNAL TIMEFRAME:**", list(sig_tf_options.keys()), horizontal=True, index=3, key="sig_tf_main_radio_nse")
+    sig_interval = sig_tf_options[selected_sig_tf]
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.spinner(f"Scanning {selected_sig_tf} Trend Breakouts (MDF + Donchian)..."): 
+        live_signals = run_nse_advanced_strategy(current_watchlist, user_sentiment, sig_interval)
     process_auto_trades(live_signals)
 
-    with st.spinner("Fetching Market Movers & Trends..."):
+    with st.spinner("Fetching Market Movers..."):
         adv, dec = calc_market_breadth(ALL_STOCKS)
         gainers, losers, trends = calc_dynamic_movers(ALL_STOCKS)
 
@@ -418,18 +633,19 @@ if page_selection == "📈 MAIN TERMINAL":
                 for st_data in s['Stocks']:
                     st_color = "green" if st_data['Pct'] >= 0 else "red"
                     st_sign = "+" if st_data['Pct'] >= 0 else ""
-                    st_link = get_tv_link(st_data['Stock'])
-                    sec_html += f"<a href='{st_link}' target='_blank' class='stock-chip' style='color:{st_color};'>{st_data['Stock']} ({st_sign}{st_data['Pct']:.2f}%)</a>"
+                    int_link = get_internal_link(st_data['Stock'])
+                    sec_html += f"<a href='{int_link}' target='_self' class='stock-chip' style='color:{st_color};' title='Click to open chart'>{st_data['Stock']} ({st_sign}{st_data['Pct']:.2f}%)</a>"
                 sec_html += "</div></details>"
             sec_html += "</div>"
             st.markdown(sec_html, unsafe_allow_html=True)
 
-        st.markdown("<div class='section-title'>🔍 TREND CONTINUITY</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>🔍 TREND CONTINUITY (NSE)</div>", unsafe_allow_html=True)
         if filtered_trends:
             t_html = "<div class='table-container'><table class='v38-table'><tr><th>Asset 🔗</th><th>Status</th></tr>"
             for t in filtered_trends: 
-                link = get_tv_link(t['Stock'])
-                t_html += f"<tr><td style='text-align:left; font-weight:bold;'><a href='{link}' target='_blank'>🔸 {t['Stock']}</a></td><td style='color:{t['Color']}; font-weight:bold;'>{t['Status']}</td></tr>"
+                int_link = get_internal_link(t['Stock'])
+                ext_link = get_tv_link(t['Stock'])
+                t_html += f"<tr><td style='text-align:left; font-weight:bold;'><a href='{int_link}' target='_self' title='Open Deep Analysis'>🔸 {t['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;' title='Open TradingView'>🌐</a></td><td style='color:{t['Color']}; font-weight:bold;'>{t['Status']}</td></tr>"
             t_html += "</table></div>"
             st.markdown(t_html, unsafe_allow_html=True)
         else: st.markdown("<p style='font-size:12px;text-align:center; color:#888;'>No 3-day trend found in active list.</p>", unsafe_allow_html=True)
@@ -442,18 +658,18 @@ if page_selection == "📈 MAIN TERMINAL":
         p4_ltp, p4_chg, p4_pct = fetch_live_data("^NSEBANK")
         p5_ltp, p5_chg, p5_pct = fetch_live_data("NIFTY_FIN_SERVICE.NS") 
         p6_ltp, p6_chg, p6_pct = fetch_live_data("^CNXIT") 
-        indices = [("Sensex", p1_ltp, p1_chg, p1_pct), ("Nifty", p2_ltp, p2_chg, p2_pct), ("USDINR", p3_ltp, p3_chg, p3_pct), ("Nifty Bank", p4_ltp, p4_chg, p4_pct), ("Fin Nifty", p5_ltp, p5_chg, p5_pct), ("Nifty IT", p6_ltp, p6_chg, p6_pct)]
+        indices = [("Sensex", "^BSESN", p1_ltp, p1_chg, p1_pct), ("Nifty", "^NSEI", p2_ltp, p2_chg, p2_pct), ("USDINR", "INR=X", p3_ltp, p3_chg, p3_pct), ("Nifty Bank", "^NSEBANK", p4_ltp, p4_chg, p4_pct), ("Fin Nifty", "NIFTY_FIN_SERVICE.NS", p5_ltp, p5_chg, p5_pct), ("Nifty IT", "^CNXIT", p6_ltp, p6_chg, p6_pct)]
         
-        idx_tv_map = {"Sensex": "BSE:SENSEX", "Nifty": "NSE:NIFTY", "USDINR": "FX_IDC:USDINR", "Nifty Bank": "NSE:BANKNIFTY", "Fin Nifty": "NSE:CNXFIN", "Nifty IT": "NSE:CNXIT"}
         indices_html = "<div class='idx-container'>"
-        for name, val, chg, pct in indices:
+        for name, ticker, val, chg, pct in indices:
             clr = "green" if chg >= 0 else "red"
             sign = "+" if chg >= 0 else ""
-            prefix = "₹"
+            int_link = get_internal_link(ticker)
+            ext_link = get_tv_link(ticker)
+            prefix = "₹" if name != "USDINR" else "₹"
             if name == "USDINR": val_str, chg_str = f"{val:.4f}", f"{chg:.4f}"
             else: val_str, chg_str = fmt_price(val), fmt_price(chg)
-            idx_link = f"https://in.tradingview.com/chart/?symbol={idx_tv_map[name]}"
-            indices_html += f"<div class='idx-box'><a href='{idx_link}' target='_blank' style='text-decoration:none; font-size:11px; color:#1a73e8; font-weight:bold;'>{name} 🔗</a><br><span style='font-size:15px; color:black; font-weight:bold;'>{prefix}{val_str}</span><br><span style='color:{clr}; font-size:11px; font-weight:bold;'>{sign}{chg_str} ({sign}{pct:.2f}%)</span></div>"
+            indices_html += f"<div class='idx-box'><a href='{int_link}' target='_self' style='text-decoration:none; font-size:11px; color:#1a73e8; font-weight:bold;' title='Open Deep Analysis'>{name}</a> <a href='{ext_link}' target='_blank' style='font-size:9px;' title='Open TradingView'>🌐</a><br><span style='font-size:15px; color:black; font-weight:bold;'>{prefix}{val_str}</span><br><span style='color:{clr}; font-size:11px; font-weight:bold;'>{sign}{chg_str} ({sign}{pct:.2f}%)</span></div>"
         indices_html += "</div>"
         st.markdown(indices_html, unsafe_allow_html=True)
 
@@ -463,29 +679,31 @@ if page_selection == "📈 MAIN TERMINAL":
         adv_dec_html = f"<div class='adv-dec-container'><div class='adv-dec-bar'><div class='bar-green' style='width: {adv_pct}%;'></div><div class='bar-red' style='width: {100-adv_pct}%;'></div></div><div style='display:flex; justify-content:space-between; font-size:12px; font-weight:bold;'><span style='color:green;'>Advances: {adv}</span><span style='color:red;'>Declines: {dec}</span></div></div>"
         st.markdown(adv_dec_html, unsafe_allow_html=True)
 
-        st.markdown(f"<div class='section-title'>🎯 LIVE SIGNALS FOR: {selected_sector} (5M HA+BB)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='section-title'>🎯 LIVE SIGNALS: {selected_sector} ({selected_sig_tf} MDF + DONCHIAN)</div>", unsafe_allow_html=True)
         if len(live_signals) > 0:
             sig_html = "<div class='table-container'><table class='v38-table'><tr><th>Asset 🔗</th><th>Entry</th><th>LTP</th><th>Signal</th><th>SL</th><th>Target (1:3)</th><th>Time</th></tr>"
             for sig in live_signals:
                 sig_clr = "green" if sig['Signal'] == "BUY" else "red"
-                link = get_tv_link(sig['Stock'])
-                sig_html += f"<tr><td style='font-weight:bold;'><a href='{link}' target='_blank'>🔸 {sig['Stock']}</a></td><td>₹{fmt_price(sig['Entry'])}</td><td>₹{fmt_price(sig['LTP'])}</td><td style='color:white; background:{sig_clr}; font-weight:bold;'>{sig['Signal']}</td><td>₹{fmt_price(sig['SL'])}</td><td style='font-weight:bold; color:#856404;'>₹{fmt_price(sig['T2(1:3)'])}</td><td>{sig['Time']}</td></tr>"
+                int_link = get_internal_link(sig['Stock'])
+                ext_link = get_tv_link(sig['Stock'])
+                sig_html += f"<tr><td style='font-weight:bold;'><a href='{int_link}' target='_self' title='Open Deep Analysis'>🔸 {sig['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;' title='Open TradingView'>🌐</a></td><td>₹{fmt_price(sig['Entry'])}</td><td>₹{fmt_price(sig['LTP'])}</td><td style='color:white; background:{sig_clr}; font-weight:bold;'>{sig['Signal']}</td><td>₹{fmt_price(sig['SL'])}</td><td style='font-weight:bold; color:#856404;'>₹{fmt_price(sig['Target'])}</td><td>{sig['Time']}</td></tr>"
             sig_html += "</table></div>"
             st.markdown(sig_html, unsafe_allow_html=True)
-        else: st.info("⏳ No fresh signals right now.")
+        else: st.info(f"⏳ No trend breakouts matching MDF Phase on {selected_sig_tf} chart right now.")
 
-        st.markdown("<div class='section-title'>⏳ ACTIVE TRADES</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>⏳ ACTIVE PAPER TRADES</div>", unsafe_allow_html=True)
         if len(st.session_state.active_trades) > 0:
             act_html = "<div class='table-container'><table class='v38-table'><tr><th>Asset 🔗</th><th>Signal</th><th>Entry</th><th>Live LTP</th><th>Live P&L</th><th>Target</th><th>SL</th><th>Time</th></tr>"
             for t in st.session_state.active_trades:
-                link = get_tv_link(t['Stock'])
+                int_link = get_internal_link(t['Stock'])
+                ext_link = get_tv_link(t['Stock'])
                 res = fetch_live_data(t['Stock'])
                 ltp = res[0] if res[0] > 0 else t['Entry'] 
                 points = ltp - t['Entry'] if t['Signal'] == 'BUY' else t['Entry'] - ltp
                 pnl_pct = (points / t['Entry']) * 100 if t['Entry'] > 0 else 0
                 pnl_color = "green" if points >= 0 else "red"
                 sign = "+" if points >= 0 else ""
-                act_html += f"<tr><td style='font-weight:bold;'><a href='{link}' target='_blank'>🔸 {t['Stock']}</a></td><td style='font-weight:bold;'>{t['Signal']}</td><td>₹{fmt_price(t['Entry'])}</td><td>₹{fmt_price(ltp)}</td><td style='color:{pnl_color}; font-weight:bold;'>{sign}₹{fmt_price(abs(points))} ({sign}{pnl_pct:.2f}%)</td><td style='color:#856404;'>₹{fmt_price(t['Target'])}</td><td style='color:#dc3545;'>₹{fmt_price(t['SL'])}</td><td>{t['Date']}</td></tr>"
+                act_html += f"<tr><td style='font-weight:bold;'><a href='{int_link}' target='_self' title='Open Deep Analysis'>🔸 {t['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;' title='Open TradingView'>🌐</a></td><td style='font-weight:bold;'>{t['Signal']}</td><td>₹{fmt_price(t['Entry'])}</td><td>₹{fmt_price(ltp)}</td><td style='color:{pnl_color}; font-weight:bold;'>{sign}₹{fmt_price(abs(points))} ({sign}{pnl_pct:.2f}%)</td><td style='color:#856404;'>₹{fmt_price(t['Target'])}</td><td style='color:#dc3545;'>₹{fmt_price(t['SL'])}</td><td>{t['Date']}</td></tr>"
             act_html += "</table></div>"
             st.markdown(act_html, unsafe_allow_html=True)
         else: st.info("No trades are currently active.")
@@ -494,11 +712,12 @@ if page_selection == "📈 MAIN TERMINAL":
         if len(st.session_state.trade_history) > 0:
             hist_html = "<div class='table-container'><table class='v38-table'><tr><th>Asset 🔗</th><th>Signal</th><th>Entry</th><th>Exit</th><th>P&L (Pts)</th><th>Status</th><th>Time</th></tr>"
             for t in st.session_state.trade_history:
-                link = get_tv_link(t['Stock'])
+                int_link = get_internal_link(t['Stock'])
+                ext_link = get_tv_link(t['Stock'])
                 entry_p, exit_p = float(t['Entry']), float(t['Exit'])
                 points = exit_p - entry_p if t['Signal'] == 'BUY' else entry_p - exit_p
                 pnl_pct, pnl_color, sign = float(t.get('P&L %', 0)), "green" if points >= 0 else "red", "+" if points >= 0 else ""
-                hist_html += f"<tr><td style='font-weight:bold;'><a href='{link}' target='_blank'>🔸 {t['Stock']}</a></td><td style='font-weight:bold;'>{t['Signal']}</td><td>₹{fmt_price(entry_p)}</td><td>₹{fmt_price(exit_p)}</td><td style='color:{pnl_color}; font-weight:bold;'>{sign}₹{fmt_price(abs(points))} ({sign}{pnl_pct:.2f}%)</td><td style='font-weight:bold;'>{t['Status']}</td><td>{t['Date']}</td></tr>"
+                hist_html += f"<tr><td style='font-weight:bold;'><a href='{int_link}' target='_self' title='Open Deep Analysis'>🔸 {t['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;' title='Open TradingView'>🌐</a></td><td style='font-weight:bold;'>{t['Signal']}</td><td>₹{fmt_price(entry_p)}</td><td>₹{fmt_price(exit_p)}</td><td style='color:{pnl_color}; font-weight:bold;'>{sign}₹{fmt_price(abs(points))} ({sign}{pnl_pct:.2f}%)</td><td style='font-weight:bold;'>{t['Status']}</td><td>{t['Date']}</td></tr>"
             hist_html += "</table></div>"
             st.markdown(hist_html, unsafe_allow_html=True)
         else: st.info("No closed trades yet.")
@@ -508,22 +727,23 @@ if page_selection == "📈 MAIN TERMINAL":
         if gainers:
             g_html = "<div class='table-container'><table class='v38-table'><tr><th>Asset 🔗</th><th>LTP</th><th>%</th></tr>"
             for g in gainers: 
-                link = get_tv_link(g['Stock'])
-                g_html += f"<tr><td style='text-align:left; font-weight:bold;'><a href='{link}' target='_blank'>🔸 {g['Stock']}</a></td><td>₹{fmt_price(g['LTP'])}</td><td style='color:green; font-weight:bold;'>+{g['Pct']:.2f}%</td></tr>"
+                int_link = get_internal_link(g['Stock'])
+                ext_link = get_tv_link(g['Stock'])
+                g_html += f"<tr><td style='text-align:left; font-weight:bold;'><a href='{int_link}' target='_self' title='Open Deep Analysis'>🔸 {g['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;' title='Open TradingView'>🌐</a></td><td>₹{fmt_price(g['LTP'])}</td><td style='color:green; font-weight:bold;'>+{g['Pct']:.2f}%</td></tr>"
             g_html += "</table></div>"
             st.markdown(g_html, unsafe_allow_html=True)
-        else: st.markdown("<p style='font-size:12px;text-align:center;'>No live gainers data.</p>", unsafe_allow_html=True)
 
         st.markdown("<div class='section-title'>🔻 LIVE TOP LOSERS</div>", unsafe_allow_html=True)
         if losers:
             l_html = "<div class='table-container'><table class='v38-table'><tr><th>Asset 🔗</th><th>LTP</th><th>%</th></tr>"
             for l in losers: 
-                link = get_tv_link(l['Stock'])
-                l_html += f"<tr><td style='text-align:left; font-weight:bold;'><a href='{link}' target='_blank'>🔸 {l['Stock']}</a></td><td>₹{fmt_price(l['LTP'])}</td><td style='color:red; font-weight:bold;'>{l['Pct']:.2f}%</td></tr>"
+                int_link = get_internal_link(l['Stock'])
+                ext_link = get_tv_link(l['Stock'])
+                l_html += f"<tr><td style='text-align:left; font-weight:bold;'><a href='{int_link}' target='_self' title='Open Deep Analysis'>🔸 {l['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;' title='Open TradingView'>🌐</a></td><td>₹{fmt_price(l['LTP'])}</td><td style='color:red; font-weight:bold;'>{l['Pct']:.2f}%</td></tr>"
             l_html += "</table></div>"
             st.markdown(l_html, unsafe_allow_html=True)
-        else: st.markdown("<p style='font-size:12px;text-align:center;'>No live losers data.</p>", unsafe_allow_html=True)
 
+# ==================== PRE-MARKET & OPENING MOVERS ====================
 elif page_selection in ["🌅 9:10 AM: Pre-Market Gap", "🚀 9:15 AM: Opening Movers"]:
     st.markdown(f"<div class='section-title'>{page_selection}</div>", unsafe_allow_html=True)
     with st.spinner("Scanning Entire Market..."):
@@ -533,8 +753,9 @@ elif page_selection in ["🌅 9:10 AM: Pre-Market Gap", "🚀 9:15 AM: Opening M
         m_html = f"<div class='table-container'><table class='v38-table'><tr><th>Stock 🔗</th><th>Data Point</th><th>{col_name}</th></tr>"
         for m in movers: 
             pct, val, c = m.get('Gap %', m.get('Move %', 0)), m.get('Open', m.get('LTP', 0)), "green" if m.get('Gap %', m.get('Move %', 0)) > 0 else "red"
-            link = get_tv_link(m['Stock'])
-            m_html += f"<tr><td style='font-weight:bold;'><a href='{link}' target='_blank'>🔸 {m['Stock']}</a></td><td>{fmt_price(val)}</td><td style='color:{c}; font-weight:bold;'>{pct:.2f}%</td></tr>"
+            int_link = get_internal_link(m['Stock'])
+            ext_link = get_tv_link(m['Stock'])
+            m_html += f"<tr><td style='font-weight:bold;'><a href='{int_link}' target='_self'>🔸 {m['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;'>🌐</a></td><td>₹{fmt_price(val)}</td><td style='color:{c}; font-weight:bold;'>{pct:.2f}%</td></tr>"
         m_html += "</table></div>"
         st.markdown(m_html, unsafe_allow_html=True)
     else: st.info("No significant movement found based on live data.")
@@ -545,12 +766,14 @@ elif page_selection == "🔥 9:20 AM: OI Setup":
     if oi_setups:
         oi_html = "<div class='table-container'><table class='v38-table'><tr><th>Asset 🔗</th><th>Market Action (Signal)</th><th>OI / Vol Status</th></tr>"
         for o in oi_setups: 
-            link = get_tv_link(o['Stock'])
-            oi_html += f"<tr><td style='font-weight:bold;'><a href='{link}' target='_blank'>🔸 {o['Stock']}</a></td><td style='color:{o['Color']}; font-weight:bold;'>{o['Signal']}</td><td style='color:#1a73e8; font-weight:bold;'>{o['OI']}</td></tr>"
+            int_link = get_internal_link(o['Stock'])
+            ext_link = get_tv_link(o['Stock'])
+            oi_html += f"<tr><td style='font-weight:bold;'><a href='{int_link}' target='_self'>🔸 {o['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;'>🌐</a></td><td style='color:{o['Color']}; font-weight:bold;'>{o['Signal']}</td><td style='color:#1a73e8; font-weight:bold;'>{o['OI']}</td></tr>"
         oi_html += "</table></div>"
         st.markdown(oi_html, unsafe_allow_html=True)
     else: st.info("No significant real volume/OI spikes detected.")
 
+# ==================== MENU 3: BACKTEST ENGINE ====================
 elif page_selection == "📊 Backtest Engine":
     st.markdown("<div class='section-title'>📊 Backtest Engine</div>", unsafe_allow_html=True)
     bt_col1, bt_col2 = st.columns(2)
@@ -578,8 +801,6 @@ elif page_selection == "📊 Backtest Engine":
                                 trades.append({"Date": bt_data.index[i].strftime('%Y-%m-%d'), "Setup": "3 Days RED", "Signal": "BUY", "Entry": fmt_price(entry_price), "Exit": fmt_price(exit_price), "P&L %": round(pnl, 2)})
                     bt_df = pd.DataFrame(trades)
                     if not bt_df.empty:
-                        link = get_tv_link(bt_stock)
-                        st.markdown(f"### <a href='{link}' target='_blank' style='text-decoration:none; color:#1a73e8;'>✅ Click to Open Chart for {bt_stock} 🔗</a>", unsafe_allow_html=True)
                         total_pnl = bt_df['P&L %'].sum()
                         win_rate = (len(bt_df[bt_df['P&L %'] > 0]) / len(bt_df)) * 100
                         m_col1, m_col2, m_col3 = st.columns(3)
@@ -590,9 +811,10 @@ elif page_selection == "📊 Backtest Engine":
                     else: st.info(f"No valid setups found for {bt_stock} in the last {bt_period}.")
             except Exception as e: st.error(f"Error fetching data: {e}")
 
+# ==================== MENU 4: SETTINGS ====================
 elif page_selection == "⚙️ Scanner Settings":
     st.markdown("<div class='section-title'>⚙️ System Status</div>", unsafe_allow_html=True)
-    st.success("✅ Exclusive NSE Terminal App \n\n ✅ Highly Optimized and Faster Engine \n\n ✅ Full Market UI Restored")
+    st.success("✅ Exclusive Indian Market (NSE) App \n\n ✅ Zero-Latency Clock Active \n\n ✅ Click-to-Open Deep Analysis Active \n\n ✅ Instant Paper Trade Panel Active")
 
 if st.session_state.auto_ref:
     time.sleep(refresh_time * 60)
