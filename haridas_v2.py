@@ -265,50 +265,51 @@ def calc_market_breadth(item_list):
     return adv, dec
 
 @st.cache_data(ttl=60, show_spinner=False)
-def calc_sector_perf(sector_dict, ignore_keys=[]):
-    results = []
-    for sector, items in sector_dict.items():
-        if sector in ignore_keys: continue
-        total_pct, valid = 0, 0
-        stock_details = []
-        for ticker in items:
-            try:
-                ltp, _, pct = fetch_live_data(ticker)
-                if ltp > 0: 
-                    total_pct += pct
-                    valid += 1
-                    stock_details.append({"Stock": ticker, "Pct": pct})
-            except: continue
-        if valid > 0:
-            avg_pct = round(total_pct / valid, 2)
-            stock_details = sorted(stock_details, key=lambda x: x['Pct'], reverse=True)
-            results.append({"Sector": sector, "Pct": avg_pct, "Width": max(min(abs(avg_pct) * 20, 100), 5), "Stocks": stock_details})
-    return sorted(results, key=lambda x: x['Pct'], reverse=True)
+def scan_pre_market(stock_list):
+    movers = []
+    def fetch_gap(ticker):
+        try:
+            df = yf.Ticker(ticker).history(period="5d", interval="1d")
+            if len(df) >= 2:
+                prev_close = float(df['Close'].iloc[-2])
+                today_open = float(df['Open'].iloc[-1])
+                if prev_close > 0 and today_open > 0:
+                    gap_pct = ((today_open - prev_close) / prev_close) * 100
+                    if abs(gap_pct) >= 1.0: return {"Stock": ticker, "Gap %": gap_pct, "Open": today_open}
+        except: return None
+    with ThreadPoolExecutor(max_workers=50) as executor: results = list(executor.map(fetch_gap, stock_list))
+    return sorted([r for r in results if r], key=lambda x: abs(x['Gap %']), reverse=True)
 
-# 🔥 [PLAN B] SUPER ANTI-BOT NSE SCRAPER (NO API REQUIRED) 🔥
+
+# 🔥 [PLAN B] ULTIMATE NSE OPTION CHAIN SCRAPER (NO API REQUIRED) 🔥
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_nse_option_chain(symbol):
     url_oc = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
     
+    # Rotating User Agents to trick the server
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0"
+    ]
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent": random.choice(user_agents),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
-        "Referer": "https://www.nseindia.com/option-chain",
         "Upgrade-Insecure-Requests": "1"
     }
     
     try:
         session = requests.Session()
-        session.headers.update(headers)
-        # Step 1: Hit main page first
-        session.get("https://www.nseindia.com/", timeout=10)
-        time.sleep(1.5) # Act like a real human
+        # Step 1: Hit main page to mimic a human user and get cookies
+        session.get("https://www.nseindia.com/", headers=headers, timeout=5)
+        time.sleep(1) # Crucial sleep to bypass bot-detection
         
-        # Step 2: Hit Option Chain API
-        response = session.get(url_oc, timeout=10)
+        # Step 2: Hit Option Chain page
+        response = session.get(url_oc, headers=headers, timeout=8)
         if response.status_code == 200:
             return response.json()
             
@@ -369,7 +370,7 @@ def process_option_chain(json_data):
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("### 🇮🇳 NSE DASHBOARD")
-    menu_options = ["📈 MAIN TERMINAL", "⛓️ Option Chain (Live)", "📊 Backtest Engine", "⚙️ Scanner Settings"]
+    menu_options = ["📈 MAIN TERMINAL", "⛓️ Option Chain (Live)", "🌅 9:10 AM: Pre-Market Gap", "📊 Backtest Engine", "⚙️ Scanner Settings"]
     page_selection = st.radio("Select Menu:", menu_options)
     st.divider()
     
@@ -608,7 +609,21 @@ elif page_selection == "⛓️ Option Chain (Live)":
             else:
                 st.error("Market Data is empty. NSE might be closed.")
         else:
-            st.error("⚠️ Failed to fetch data from NSE. Just click the REFRESH button or wait 10 seconds to bypass the block.")
+            st.error("⚠️ Failed to fetch data. Don't worry, just refresh the page once or twice to bypass the NSE Bot-Checker.")
+
+# ==================== PRE-MARKET & OPENING MOVERS ====================
+elif page_selection == "🌅 9:10 AM: Pre-Market Gap":
+    st.markdown(f"<div class='section-title'>{page_selection}</div>", unsafe_allow_html=True)
+    with st.spinner("Scanning Entire Market..."):
+        movers = scan_pre_market(ALL_STOCKS)
+    if movers:
+        m_html = f"<div class='table-container'><table class='v38-table'><tr><th>Stock</th><th>Open Price</th><th>Gap % (vs Yesterday Close)</th></tr>"
+        for m in movers: 
+            c = "green" if m['Gap %'] > 0 else "red"
+            m_html += f"<tr><td style='font-weight:bold;'>🔸 {m['Stock']}</td><td>₹{fmt_price(m['Open'])}</td><td style='color:{c}; font-weight:bold;'>{m['Gap %']:.2f}%</td></tr>"
+        m_html += "</table></div>"
+        st.markdown(m_html, unsafe_allow_html=True)
+    else: st.info("No significant movement found based on live data.")
 
 # ==================== MENU 3: BACKTEST ENGINE ====================
 elif page_selection == "📊 Backtest Engine":
