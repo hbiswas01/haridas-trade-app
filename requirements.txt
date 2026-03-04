@@ -3,4 +3,3 @@ pandas
 yfinance
 pytz
 requests
-neo-api-client
