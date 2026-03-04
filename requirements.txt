@@ -3,4 +3,5 @@ pandas
 yfinance
 pytz
 requests
-git+https://github.com/Kotak-Neo/kotak-neo-api.git
+setuptools
+neo-api-client
