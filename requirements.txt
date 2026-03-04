@@ -3,5 +3,4 @@ pandas
 yfinance
 pytz
 requests
-setuptools
 neo-api-client
