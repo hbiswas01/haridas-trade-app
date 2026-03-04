@@ -448,7 +448,6 @@ def process_option_chain(json_data):
     records = json_data['records']
     data = records['data']
     
-    # Underlying value বের করা
     underlying_val = 0
     for item in data:
         if 'CE' in item and item['CE']['underlyingValue'] > 0:
@@ -490,10 +489,8 @@ def process_option_chain(json_data):
     df = pd.DataFrame(oc_list)
     df = df.sort_values('Strike').reset_index(drop=True)
     
-    # PCR ক্যালকুলেশন
     pcr = round(tot_pe_oi / tot_ce_oi, 2) if tot_ce_oi > 0 else 0
     
-    # Support / Resistance ক্যালকুলেশন (ATM এর কাছাকাছি)
     df_near = df[(df['Strike'] >= underlying_val * 0.9) & (df['Strike'] <= underlying_val * 1.1)]
     if not df_near.empty:
         resistance_strike = df_near.loc[df_near['CE_OI'].idxmax()]['Strike']
@@ -550,7 +547,7 @@ with st.sidebar:
         time.sleep(1)
         st.rerun()
 
-# --- 🚨 FIXED ZERO-LATENCY CLOCK (NO IFRAME BUGS) 🚨 ---
+# --- 🚨 FIXED ZERO-LATENCY CLOCK 🚨 ---
 top_nav_html = """
 <!DOCTYPE html>
 <html>
@@ -597,7 +594,6 @@ with col_ref2:
 # ==================== MENU 1: MAIN TERMINAL ====================
 if page_selection == "📈 MAIN TERMINAL":
 
-    # 🚨 CLICK-TO-OPEN DEEP ANALYSIS CHART & PAPER TRADE EXECUTION 🚨
     clicked_stock = st.query_params.get("stock")
     if clicked_stock and clicked_stock in ALL_STOCKS:
         st.markdown(f"<div class='section-title' style='background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%); color: white; border-left: 5px solid #00ffd0;'>🔬 DEEP ANALYSIS & PAPER TRADE: {clicked_stock}</div>", unsafe_allow_html=True)
@@ -679,7 +675,6 @@ if page_selection == "📈 MAIN TERMINAL":
                 """
                 st.markdown(mdf_dashboard, unsafe_allow_html=True)
 
-            # 🚨 INSTANT PAPER TRADE WITH AUTO-QTY FOR NSE 🚨
             st.markdown("<div style='background: rgba(12, 14, 28, 0.95); padding: 10px; border-radius: 5px; border: 2px solid #00ffd0; margin-top: 15px;'>", unsafe_allow_html=True)
             st.markdown(f"<div style='color:#00ffd0; font-weight:bold; font-size:13px; text-align:center; margin-bottom:8px;'>⚡ PAPER TRADE: {clicked_stock}</div>", unsafe_allow_html=True)
             
@@ -713,8 +708,6 @@ if page_selection == "📈 MAIN TERMINAL":
             
         st.markdown("<hr style='border: 2px solid #00ffd0; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
-
-    # ------------------ REGULAR DASHBOARD ------------------
     st.markdown("<div style='background: rgba(12, 14, 28, 0.95); padding: 10px; border-radius: 5px; border: 1px solid #b0c4de; margin-bottom: 15px;'>", unsafe_allow_html=True)
     sig_tf_options = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1H": "1h", "1D": "1d"}
     selected_sig_tf = st.radio("⏳ **SELECT SIGNAL TIMEFRAME:**", list(sig_tf_options.keys()), horizontal=True, index=2, key="sig_tf_main_radio_nse")
@@ -867,7 +860,7 @@ if page_selection == "📈 MAIN TERMINAL":
 
 # ==================== MENU 2: LIVE OPTION CHAIN ====================
 elif page_selection == "⛓️ Option Chain (Live)":
-    st.markdown("<div class='section-title'>⛓️ LIVE OPTION CHAIN & MARKET DATA</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>⛓️ LIVE OPTION CHAIN & SMART SIGNALS</div>", unsafe_allow_html=True)
     
     idx_col1, idx_col2 = st.columns(2)
     with idx_col1:
@@ -885,14 +878,52 @@ elif page_selection == "⛓️ Option Chain (Live)":
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("📌 Spot Price", f"₹{spot_price:,.2f}")
                 
-                pcr_status = "🟢 Bullish (Support)" if pcr >= 1.0 else "🔴 Bearish (Resistance)"
+                pcr_status = "🟢 Bullish (Supportive)" if pcr >= 1.0 else "🔴 Bearish (Resistance)"
                 m2.metric("📊 PCR (Put-Call Ratio)", f"{pcr}", pcr_status)
                 
                 m3.metric("🟢 Strong Support (PE)", f"₹{support:,.0f}")
                 m4.metric("🔴 Strong Resistance (CE)", f"₹{resistance:,.0f}")
+
+                # 🚀 SMART SIGNAL GENERATOR ALGORITHM 🚀
+                dist_supp = ((spot_price - support) / spot_price) * 100 if support > 0 else 100
+                dist_res = ((resistance - spot_price) / spot_price) * 100 if resistance > 0 else 100
                 
-                # Filter Data to show only nearby strikes
-                # Find exactly the closest strike to current spot price (ATM)
+                signal_text = "⏳ WAIT"
+                signal_desc = "Market is midway between Support & Resistance. No clear entry."
+                entry_p, sl_p, tp_p = spot_price, 0.0, 0.0
+                bg_color, text_color = "#e2e3e5", "#383d41"
+
+                sl_buffer = spot_price * 0.0015 
+
+                if 0 <= dist_supp <= 0.25 and pcr >= 0.80:
+                    signal_text = "🟢 BUY CALL / LONG"
+                    signal_desc = f"Price is at Strong Support (₹{support}). Reversal expected!"
+                    entry_p = spot_price
+                    sl_p = support - sl_buffer
+                    tp_p = resistance if resistance > spot_price else spot_price + (spot_price - sl_p) * 2
+                    bg_color, text_color = "#d4edda", "#155724"
+                    
+                elif 0 <= dist_res <= 0.25 and pcr <= 1.10:
+                    signal_text = "🔴 BUY PUT / SHORT"
+                    signal_desc = f"Price is facing Strong Resistance (₹{resistance}). Rejection expected!"
+                    entry_p = spot_price
+                    sl_p = resistance + sl_buffer
+                    tp_p = support if support < spot_price else spot_price - (sl_p - spot_price) * 2
+                    bg_color, text_color = "#f8d7da", "#721c24"
+
+                signal_html = f"""
+                <div style="background-color: {bg_color}; color: {text_color}; padding: 15px; border-radius: 8px; border: 1px solid {text_color}; margin-top: 10px; margin-bottom: 20px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    <h3 style="margin:0; padding:0; font-size: 20px; font-weight: bold;">{signal_text}</h3>
+                    <p style="margin:5px 0 10px 0; font-size: 14px;">{signal_desc}</p>
+                    <div style="display: flex; justify-content: space-around; font-weight: bold; font-size: 16px; background: rgba(255,255,255,0.5); padding: 10px; border-radius: 5px;">
+                        <span>🎯 Entry: ₹{entry_p:,.2f}</span>
+                        <span style="color: #dc3545;">🛑 SL: ₹{sl_p:,.2f}</span>
+                        <span style="color: #28a745;">🏆 Target: ₹{tp_p:,.2f}</span>
+                    </div>
+                </div>
+                """
+                st.markdown(signal_html, unsafe_allow_html=True)
+
                 atm_strike = df_oc.iloc[(df_oc['Strike'] - spot_price).abs().argsort()[:1]]['Strike'].values[0]
                 idx_atm = df_oc[df_oc['Strike'] == atm_strike].index[0]
                 
@@ -900,15 +931,12 @@ elif page_selection == "⛓️ Option Chain (Live)":
                 end_idx = min(len(df_oc), idx_atm + strike_range + 1)
                 df_filtered = df_oc.iloc[start_idx:end_idx].copy()
                 
-                # Highlight ATM row logic
                 def highlight_atm(row):
                     if row['Strike'] == atm_strike:
                         return ['background-color: #ffff99; color: black; font-weight: bold'] * len(row)
                     return [''] * len(row)
                 
                 st.markdown("<p style='text-align:center; font-size:12px; color:gray;'><i>Note: Highlighted row represents the At-The-Money (ATM) Strike.</i></p>", unsafe_allow_html=True)
-                
-                # Render DataFrame
                 st.dataframe(df_filtered.style.apply(highlight_atm, axis=1).format("{:,.0f}"), use_container_width=True, height=600)
             else:
                 st.error("Market Data is empty. NSE might be closed or API data structure changed.")
@@ -986,7 +1014,7 @@ elif page_selection == "📊 Backtest Engine":
 # ==================== MENU 4: SETTINGS ====================
 elif page_selection == "⚙️ Scanner Settings":
     st.markdown("<div class='section-title'>⚙️ System Status</div>", unsafe_allow_html=True)
-    st.success("✅ Exclusive Indian Market (NSE) App \n\n ✅ PERFECT Zero-Latency Clock Active \n\n ✅ LIVE Option Chain (Nifty, BankNifty) Added ⛓️ \n\n ✅ RSI Divergence + Ribbon Logic Integrated 🔥 \n\n ✅ Sleep Bug Fixed (Frontend Refresh Active) 🐛🔨")
+    st.success("✅ Exclusive Indian Market (NSE) App \n\n ✅ PERFECT Zero-Latency Clock Active \n\n ✅ LIVE Option Chain (Nifty, BankNifty) Added ⛓️ \n\n ✅ Smart OI Entry & SL Signals Active 🚀 \n\n ✅ RSI Divergence + Ribbon Logic Integrated 🔥 \n\n ✅ Sleep Bug Fixed (Frontend Refresh Active) 🐛🔨")
 
 # 🔥 BUG FIX: Removed backend time.sleep() and added Frontend Auto-Refresh 🔥
 if st.session_state.auto_ref:
