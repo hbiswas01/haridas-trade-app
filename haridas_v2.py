@@ -4,6 +4,7 @@ import datetime
 import pytz
 import pandas as pd
 import time
+import requests
 from concurrent.futures import ThreadPoolExecutor
 import os
 import yfinance as yf
@@ -92,7 +93,6 @@ css_string = (
     ".sector-content { padding: 8px; border-top: 1px solid #eee; display: flex; flex-wrap: wrap; gap: 5px; background: #fafafa; } "
     ".stock-chip { font-size: 10px; padding: 4px 6px; border-radius: 4px; border: 1px solid #ccc; background: #fff; text-decoration: none !important; font-weight: bold;} "
     ".calc-box { background: white; border: 1px solid #00ffd0; padding: 15px; border-radius: 8px; box-shadow: 0px 2px 8px rgba(0,0,0,0.1); margin-top: 15px;} "
-    "/* Momentum Dashboard Custom CSS Fixed For Clipping */"
     ".mdf-table { background-color: rgba(12, 14, 28, 0.95); border: 2px solid rgb(30, 80, 140); color: white; font-family: monospace; width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; margin-top: 10px; }"
     ".mdf-table th, .mdf-table td { border: 1px solid rgb(25, 65, 120); padding: 6px 4px; text-align: center; overflow: hidden; white-space: nowrap; }"
     ".mdf-header { background-color: rgba(8, 10, 22, 0.9); color: rgb(65, 195, 115); font-weight: bold; font-size: 14px; }"
@@ -181,6 +181,7 @@ def get_dynamic_momentum(ticker, interval_yf):
     except: pass
     return 50, "NEUTRAL", 2.5, 8.0, 0, 15.0, 100, 10, 50
 
+# 🔥 [NEW] GOLDEN ENTRY SCANNER (RSI DIV+ & TREND RIBBON LOGIC FOR NSE) 🔥
 @st.cache_data(ttl=30, show_spinner=False)
 def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
     signals = []
@@ -190,42 +191,67 @@ def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
     def scan_stock(stock_symbol):
         try:
             df = yf.Ticker(stock_symbol).history(period=period, interval=interval)
-            if df.empty or len(df) < 20: return None
+            if df.empty or len(df) < 50: return None
             
-            # Using 10-Period Donchian Breakout
-            df['Upper_10'] = df['High'].rolling(10).max().shift(1)
-            df['Lower_10'] = df['Low'].rolling(10).min().shift(1)
-            df['SL_Long'] = df['Low'].rolling(8).min().shift(1)
-            df['SL_Short'] = df['High'].rolling(8).max().shift(1)
+            # 1. Calculate RSI (14)
+            delta = df['Close'].diff()
+            up = delta.clip(lower=0)
+            down = -1 * delta.clip(upper=0)
+            ema_up = up.ewm(alpha=1/14, adjust=False).mean()
+            ema_down = down.ewm(alpha=1/14, adjust=False).mean()
+            df['RSI'] = 100 - (100 / (1 + ema_up / ema_down))
             
-            energy_pct, phase, _, _, _, _, _, _, _ = calculate_mdf_physics(df)
+            # 2. Calculate Trend Ribbon (EMA 9 & EMA 21)
+            df['EMA9'] = df['Close'].ewm(span=9, adjust=False).mean()
+            df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
             
             current_close = df['Close'].iloc[-1]
-            current_high = df['High'].iloc[-1]
-            current_low = df['Low'].iloc[-1]
-            upper_10 = df['Upper_10'].iloc[-1]
-            lower_10 = df['Lower_10'].iloc[-1]
+            ema9_val = df['EMA9'].iloc[-1]
+            ema21_val = df['EMA21'].iloc[-1]
             
-            signal = None
-            entry = current_close
-            sl = 0.0
+            trend = "BULL" if ema9_val > ema21_val else "BEAR"
             
-            # Match Breakout with MDF Phase
-            if current_high >= upper_10 and phase == "BULL":
-                signal = "BUY"
-                sl = df['SL_Long'].iloc[-1]
-            elif current_low <= lower_10 and phase == "BEAR":
-                signal = "SHORT"
-                sl = df['SL_Short'].iloc[-1]
-                
+            lows = df['Low'].values
+            highs = df['High'].values
+            rsis = df['RSI'].values
+            
+            # 3. Lookback Windows for Swings
+            recent_low_idx = np.argmin(lows[-15:-1]) + (len(lows) - 15)
+            prev_low_idx = np.argmin(lows[-50:-15]) + (len(lows) - 50)
+            recent_high_idx = np.argmax(highs[-15:-1]) + (len(highs) - 15)
+            prev_high_idx = np.argmax(highs[-50:-15]) + (len(highs) - 50)
+            
+            signal, sl, setup_name = None, 0.0, ""
+            
+            if trend == "BULL": 
+                if lows[recent_low_idx] < lows[prev_low_idx] and rsis[recent_low_idx] > rsis[prev_low_idx]:
+                    signal, setup_name, sl = "BUY", "🟢 Bull Div", lows[recent_low_idx] * 0.995
+                elif lows[recent_low_idx] > lows[prev_low_idx] and rsis[recent_low_idx] < rsis[prev_low_idx]:
+                    signal, setup_name, sl = "BUY", "🟩 Hid Bull", lows[recent_low_idx] * 0.995
+                    
+            elif trend == "BEAR": 
+                if highs[recent_high_idx] > highs[prev_high_idx] and rsis[recent_high_idx] < rsis[prev_high_idx]:
+                    signal, setup_name, sl = "SHORT", "🔴 Bear Div", highs[recent_high_idx] * 1.005
+                elif highs[recent_high_idx] < highs[prev_high_idx] and rsis[recent_high_idx] > rsis[prev_high_idx]:
+                    signal, setup_name, sl = "SHORT", "🟥 Hid Bear", highs[recent_high_idx] * 1.005
+
             if sentiment == "BULLISH" and signal == "SHORT": return None
             if sentiment == "BEARISH" and signal == "BUY": return None
 
             if signal and sl > 0:
-                risk = abs(entry - sl)
-                target = entry + (risk * 3) if signal == "BUY" else entry - (risk * 3)
+                risk = abs(current_close - sl)
+                target = current_close + (risk * 3) if signal == "BUY" else current_close - (risk * 3)
                 if risk > 0:
-                    return {"Stock": stock_symbol, "Signal": signal, "Entry": float(entry), "LTP": float(current_close), "SL": float(sl), "Target": float(target), "Time": datetime.datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%H:%M')}
+                    return {
+                        "Stock": stock_symbol, 
+                        "Signal": signal, 
+                        "Setup": setup_name,
+                        "Entry": float(current_close), 
+                        "LTP": float(current_close), 
+                        "SL": float(sl), 
+                        "Target": float(target), 
+                        "Time": datetime.datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%H:%M')
+                    }
         except: return None
         return None
 
@@ -397,10 +423,92 @@ def scan_oi_setup(item_list):
     return [r for r in results if r]
 
 
+# 🔥 [NEW] NSE OPTION CHAIN SCRAPER 🔥
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_nse_option_chain(symbol):
+    url_oc = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
+    url_main = "https://www.nseindia.com"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br"
+    }
+    try:
+        session = requests.Session()
+        session.get(url_main, headers=headers, timeout=5) # Cookies সেট করার জন্য
+        response = session.get(url_oc, headers=headers, timeout=5)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        return None
+    return None
+
+def process_option_chain(json_data):
+    if not json_data or 'records' not in json_data: return None, 0, 0, 0, 0, 0, 0
+    records = json_data['records']
+    data = records['data']
+    
+    # Underlying value বের করা
+    underlying_val = 0
+    for item in data:
+        if 'CE' in item and item['CE']['underlyingValue'] > 0:
+            underlying_val = item['CE']['underlyingValue']
+            break
+        elif 'PE' in item and item['PE']['underlyingValue'] > 0:
+            underlying_val = item['PE']['underlyingValue']
+            break
+            
+    if underlying_val == 0: return None, 0, 0, 0, 0, 0, 0
+
+    oc_list = []
+    tot_ce_oi, tot_pe_oi = 0, 0
+    for item in data:
+        strike = item.get('strikePrice', 0)
+        
+        ce_data = item.get('CE', {})
+        pe_data = item.get('PE', {})
+        
+        ce_oi = ce_data.get('openInterest', 0)
+        ce_chg_oi = ce_data.get('changeinOpenInterest', 0)
+        ce_vol = ce_data.get('totalTradedVolume', 0)
+        ce_ltp = ce_data.get('lastPrice', 0)
+        
+        pe_oi = pe_data.get('openInterest', 0)
+        pe_chg_oi = pe_data.get('changeinOpenInterest', 0)
+        pe_vol = pe_data.get('totalTradedVolume', 0)
+        pe_ltp = pe_data.get('lastPrice', 0)
+        
+        tot_ce_oi += ce_oi
+        tot_pe_oi += pe_oi
+        
+        oc_list.append({
+            "CE_OI": ce_oi, "CE_ChgOI": ce_chg_oi, "CE_Vol": ce_vol, "CE_LTP": ce_ltp,
+            "Strike": strike,
+            "PE_LTP": pe_ltp, "PE_Vol": pe_vol, "PE_ChgOI": pe_chg_oi, "PE_OI": pe_oi
+        })
+        
+    df = pd.DataFrame(oc_list)
+    df = df.sort_values('Strike').reset_index(drop=True)
+    
+    # PCR ক্যালকুলেশন
+    pcr = round(tot_pe_oi / tot_ce_oi, 2) if tot_ce_oi > 0 else 0
+    
+    # Support / Resistance ক্যালকুলেশন (ATM এর কাছাকাছি)
+    df_near = df[(df['Strike'] >= underlying_val * 0.9) & (df['Strike'] <= underlying_val * 1.1)]
+    if not df_near.empty:
+        resistance_strike = df_near.loc[df_near['CE_OI'].idxmax()]['Strike']
+        support_strike = df_near.loc[df_near['PE_OI'].idxmax()]['Strike']
+    else:
+        resistance_strike, support_strike = 0, 0
+        
+    return df, underlying_val, pcr, support_strike, resistance_strike, tot_ce_oi, tot_pe_oi
+
+
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("### 🇮🇳 NSE DASHBOARD")
-    menu_options = ["📈 MAIN TERMINAL", "🌅 9:10 AM: Pre-Market Gap", "🚀 9:15 AM: Opening Movers", "🔥 9:20 AM: OI Setup", "📊 Backtest Engine", "⚙️ Scanner Settings"]
+    # 🚨 NEW MENU ITEM ADDED FOR OPTION CHAIN 🚨
+    menu_options = ["📈 MAIN TERMINAL", "⛓️ Option Chain (Live)", "🌅 9:10 AM: Pre-Market Gap", "🚀 9:15 AM: Opening Movers", "🔥 9:20 AM: OI Setup", "📊 Backtest Engine", "⚙️ Scanner Settings"]
     page_selection = st.radio("Select Menu:", menu_options)
     st.divider()
     
@@ -607,14 +715,13 @@ if page_selection == "📈 MAIN TERMINAL":
 
 
     # ------------------ REGULAR DASHBOARD ------------------
-    # 🚨 FIXED: SIGNAL TIMEFRAME MAIN SELECTOR 🚨
     st.markdown("<div style='background: rgba(12, 14, 28, 0.95); padding: 10px; border-radius: 5px; border: 1px solid #b0c4de; margin-bottom: 15px;'>", unsafe_allow_html=True)
-    sig_tf_options = {"1m": "1m", "2m": "2m", "5m": "5m", "15m": "15m", "30m": "30m", "1H": "1h", "1D": "1d"}
-    selected_sig_tf = st.radio("⏳ **SELECT SIGNAL & SCANNER TIMEFRAME:**", list(sig_tf_options.keys()), horizontal=True, index=3, key="sig_tf_main_radio_nse")
+    sig_tf_options = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1H": "1h", "1D": "1d"}
+    selected_sig_tf = st.radio("⏳ **SELECT SIGNAL TIMEFRAME:**", list(sig_tf_options.keys()), horizontal=True, index=2, key="sig_tf_main_radio_nse")
     sig_interval = sig_tf_options[selected_sig_tf]
     st.markdown("</div>", unsafe_allow_html=True)
 
-    with st.spinner(f"Scanning {selected_sig_tf} Trend Breakouts (MDF + Donchian)..."): 
+    with st.spinner(f"Scanning Golden Entries (RSI Div+ & Ribbon) on {selected_sig_tf}..."): 
         live_signals = run_nse_advanced_strategy(current_watchlist, user_sentiment, sig_interval)
     process_auto_trades(live_signals)
 
@@ -694,17 +801,17 @@ if page_selection == "📈 MAIN TERMINAL":
         adv_dec_html = f"<div class='adv-dec-container'><div class='adv-dec-bar'><div class='bar-green' style='width: {adv_pct}%;'></div><div class='bar-red' style='width: {100-adv_pct}%;'></div></div><div style='display:flex; justify-content:space-between; font-size:12px; font-weight:bold;'><span style='color:green;'>Advances: {adv}</span><span style='color:red;'>Declines: {dec}</span></div></div>"
         st.markdown(adv_dec_html, unsafe_allow_html=True)
 
-        st.markdown(f"<div class='section-title'>🎯 LIVE SIGNALS: {selected_sector} ({selected_sig_tf} MDF + DONCHIAN)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='section-title'>🎯 LIVE SIGNALS: {selected_sector} ({selected_sig_tf} RSI DIV+ RIBBON)</div>", unsafe_allow_html=True)
         if len(live_signals) > 0:
-            sig_html = "<div class='table-container'><table class='v38-table'><tr><th>Asset 🔗</th><th>Entry</th><th>LTP</th><th>Signal</th><th>SL</th><th>Target (1:3)</th><th>Time</th></tr>"
+            sig_html = "<div class='table-container'><table class='v38-table'><tr><th>Asset 🔗</th><th>Entry</th><th>LTP</th><th>Signal</th><th>Setup</th><th>SL</th><th>Target (1:3)</th><th>Time</th></tr>"
             for sig in live_signals:
                 sig_clr = "green" if sig['Signal'] == "BUY" else "red"
                 int_link = get_internal_link(sig['Stock'])
                 ext_link = get_tv_link(sig['Stock'])
-                sig_html += f"<tr><td style='font-weight:bold;'><a href='{int_link}' target='_self' title='Open Deep Analysis'>🔸 {sig['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;' title='Open TradingView'>🌐</a></td><td>₹{fmt_price(sig['Entry'])}</td><td>₹{fmt_price(sig['LTP'])}</td><td style='color:white; background:{sig_clr}; font-weight:bold;'>{sig['Signal']}</td><td>₹{fmt_price(sig['SL'])}</td><td style='font-weight:bold; color:#856404;'>₹{fmt_price(sig['Target'])}</td><td>{sig['Time']}</td></tr>"
+                sig_html += f"<tr><td style='font-weight:bold;'><a href='{int_link}' target='_self' title='Open Deep Analysis'>🔸 {sig['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;' title='Open TradingView'>🌐</a></td><td>₹{fmt_price(sig['Entry'])}</td><td>₹{fmt_price(sig['LTP'])}</td><td style='color:white; background:{sig_clr}; font-weight:bold;'>{sig['Signal']}</td><td style='font-weight:bold;'>{sig['Setup']}</td><td>₹{fmt_price(sig['SL'])}</td><td style='font-weight:bold; color:#856404;'>₹{fmt_price(sig['Target'])}</td><td>{sig['Time']}</td></tr>"
             sig_html += "</table></div>"
             st.markdown(sig_html, unsafe_allow_html=True)
-        else: st.info(f"⏳ No trend breakouts matching MDF Phase on {selected_sig_tf} chart right now.")
+        else: st.info(f"⏳ No RSI Divergence/Ribbon entries matching on {selected_sig_tf} chart right now.")
 
         st.markdown("<div class='section-title'>⏳ ACTIVE PAPER TRADES</div>", unsafe_allow_html=True)
         if len(st.session_state.active_trades) > 0:
@@ -757,6 +864,56 @@ if page_selection == "📈 MAIN TERMINAL":
                 l_html += f"<tr><td style='text-align:left; font-weight:bold;'><a href='{int_link}' target='_self' title='Open Deep Analysis'>🔸 {l['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;' title='Open TradingView'>🌐</a></td><td>₹{fmt_price(l['LTP'])}</td><td style='color:red; font-weight:bold;'>{l['Pct']:.2f}%</td></tr>"
             l_html += "</table></div>"
             st.markdown(l_html, unsafe_allow_html=True)
+
+# ==================== MENU 2: LIVE OPTION CHAIN ====================
+elif page_selection == "⛓️ Option Chain (Live)":
+    st.markdown("<div class='section-title'>⛓️ LIVE OPTION CHAIN & MARKET DATA</div>", unsafe_allow_html=True)
+    
+    idx_col1, idx_col2 = st.columns(2)
+    with idx_col1:
+        selected_idx = st.selectbox("Select Index:", ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"])
+    with idx_col2:
+        strike_range = st.slider("Number of Strikes (Above & Below ATM):", 5, 30, 10)
+        
+    with st.spinner(f"Fetching Live Option Chain for {selected_idx} from NSE India..."):
+        oc_json = fetch_nse_option_chain(selected_idx)
+        if oc_json:
+            df_oc, spot_price, pcr, support, resistance, tot_ce, tot_pe = process_option_chain(oc_json)
+            
+            if df_oc is not None and spot_price > 0:
+                # Key Metrics Dashboard
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("📌 Spot Price", f"₹{spot_price:,.2f}")
+                
+                pcr_status = "🟢 Bullish (Support)" if pcr >= 1.0 else "🔴 Bearish (Resistance)"
+                m2.metric("📊 PCR (Put-Call Ratio)", f"{pcr}", pcr_status)
+                
+                m3.metric("🟢 Strong Support (PE)", f"₹{support:,.0f}")
+                m4.metric("🔴 Strong Resistance (CE)", f"₹{resistance:,.0f}")
+                
+                # Filter Data to show only nearby strikes
+                # Find exactly the closest strike to current spot price (ATM)
+                atm_strike = df_oc.iloc[(df_oc['Strike'] - spot_price).abs().argsort()[:1]]['Strike'].values[0]
+                idx_atm = df_oc[df_oc['Strike'] == atm_strike].index[0]
+                
+                start_idx = max(0, idx_atm - strike_range)
+                end_idx = min(len(df_oc), idx_atm + strike_range + 1)
+                df_filtered = df_oc.iloc[start_idx:end_idx].copy()
+                
+                # Highlight ATM row logic
+                def highlight_atm(row):
+                    if row['Strike'] == atm_strike:
+                        return ['background-color: #ffff99; color: black; font-weight: bold'] * len(row)
+                    return [''] * len(row)
+                
+                st.markdown("<p style='text-align:center; font-size:12px; color:gray;'><i>Note: Highlighted row represents the At-The-Money (ATM) Strike.</i></p>", unsafe_allow_html=True)
+                
+                # Render DataFrame
+                st.dataframe(df_filtered.style.apply(highlight_atm, axis=1).format("{:,.0f}"), use_container_width=True, height=600)
+            else:
+                st.error("Market Data is empty. NSE might be closed or API data structure changed.")
+        else:
+            st.error("⚠️ Failed to fetch data. NSE servers sometimes block automated requests. Please wait a few seconds and try refreshing the page.")
 
 # ==================== PRE-MARKET & OPENING MOVERS ====================
 elif page_selection in ["🌅 9:10 AM: Pre-Market Gap", "🚀 9:15 AM: Opening Movers"]:
@@ -829,8 +986,15 @@ elif page_selection == "📊 Backtest Engine":
 # ==================== MENU 4: SETTINGS ====================
 elif page_selection == "⚙️ Scanner Settings":
     st.markdown("<div class='section-title'>⚙️ System Status</div>", unsafe_allow_html=True)
-    st.success("✅ Exclusive Indian Market (NSE) App \n\n ✅ PERFECT Zero-Latency Clock Active \n\n ✅ Auto-Quantity Calculator (Capital ₹) \n\n ✅ Main Dashboard Signal Timeframe Selector Active")
+    st.success("✅ Exclusive Indian Market (NSE) App \n\n ✅ PERFECT Zero-Latency Clock Active \n\n ✅ LIVE Option Chain (Nifty, BankNifty) Added ⛓️ \n\n ✅ RSI Divergence + Ribbon Logic Integrated 🔥 \n\n ✅ Sleep Bug Fixed (Frontend Refresh Active) 🐛🔨")
 
+# 🔥 BUG FIX: Removed backend time.sleep() and added Frontend Auto-Refresh 🔥
 if st.session_state.auto_ref:
-    time.sleep(refresh_time * 60)
-    st.rerun()
+    refresh_sec = refresh_time * 60
+    st.markdown(f"""
+        <script>
+            setTimeout(function() {{
+                window.location.reload();
+            }}, {refresh_sec * 1000});
+        </script>
+    """, unsafe_allow_html=True)
