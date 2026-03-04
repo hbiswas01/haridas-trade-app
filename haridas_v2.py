@@ -265,6 +265,27 @@ def calc_market_breadth(item_list):
     return adv, dec
 
 @st.cache_data(ttl=60, show_spinner=False)
+def calc_sector_perf(sector_dict, ignore_keys=[]):
+    results = []
+    for sector, items in sector_dict.items():
+        if sector in ignore_keys: continue
+        total_pct, valid = 0, 0
+        stock_details = []
+        for ticker in items:
+            try:
+                ltp, _, pct = fetch_live_data(ticker)
+                if ltp > 0: 
+                    total_pct += pct
+                    valid += 1
+                    stock_details.append({"Stock": ticker, "Pct": pct})
+            except: continue
+        if valid > 0:
+            avg_pct = round(total_pct / valid, 2)
+            stock_details = sorted(stock_details, key=lambda x: x['Pct'], reverse=True)
+            results.append({"Sector": sector, "Pct": avg_pct, "Width": max(min(abs(avg_pct) * 20, 100), 5), "Stocks": stock_details})
+    return sorted(results, key=lambda x: x['Pct'], reverse=True)
+
+@st.cache_data(ttl=60, show_spinner=False)
 def scan_pre_market(stock_list):
     movers = []
     def fetch_gap(ticker):
@@ -286,7 +307,6 @@ def scan_pre_market(stock_list):
 def fetch_nse_option_chain(symbol):
     url_oc = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
     
-    # Rotating User Agents to trick the server
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Safari/605.1.15",
@@ -304,11 +324,9 @@ def fetch_nse_option_chain(symbol):
     
     try:
         session = requests.Session()
-        # Step 1: Hit main page to mimic a human user and get cookies
         session.get("https://www.nseindia.com/", headers=headers, timeout=5)
-        time.sleep(1) # Crucial sleep to bypass bot-detection
+        time.sleep(1.5) 
         
-        # Step 2: Hit Option Chain page
         response = session.get(url_oc, headers=headers, timeout=8)
         if response.status_code == 200:
             return response.json()
@@ -546,7 +564,7 @@ if page_selection == "📈 MAIN TERMINAL":
 
 # ==================== MENU 2: LIVE OPTION CHAIN ====================
 elif page_selection == "⛓️ Option Chain (Live)":
-    st.markdown("<div class='section-title'>⛓️ LIVE OPTION CHAIN & SMART SIGNALS (NO API NEEDED)</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>⛓️ LIVE OPTION CHAIN & SMART SIGNALS</div>", unsafe_allow_html=True)
     
     idx_col1, idx_col2 = st.columns(2)
     with idx_col1:
@@ -609,7 +627,7 @@ elif page_selection == "⛓️ Option Chain (Live)":
             else:
                 st.error("Market Data is empty. NSE might be closed.")
         else:
-            st.error("⚠️ Failed to fetch data. Don't worry, just refresh the page once or twice to bypass the NSE Bot-Checker.")
+            st.error("⚠️ Failed to fetch data. Don't worry, just click the REFRESH button once or twice to bypass the NSE Bot-Checker.")
 
 # ==================== PRE-MARKET & OPENING MOVERS ====================
 elif page_selection == "🌅 9:10 AM: Pre-Market Gap":
