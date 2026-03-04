@@ -181,7 +181,7 @@ def get_dynamic_momentum(ticker, interval_yf):
     except: pass
     return 50, "NEUTRAL", 2.5, 8.0, 0, 15.0, 100, 10, 50
 
-# 🔥 [NEW] GOLDEN ENTRY SCANNER (RSI DIV+ & TREND RIBBON LOGIC FOR NSE) 🔥
+# 🔥 GOLDEN ENTRY SCANNER 🔥
 @st.cache_data(ttl=30, show_spinner=False)
 def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
     signals = []
@@ -193,7 +193,6 @@ def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
             df = yf.Ticker(stock_symbol).history(period=period, interval=interval)
             if df.empty or len(df) < 50: return None
             
-            # 1. Calculate RSI (14)
             delta = df['Close'].diff()
             up = delta.clip(lower=0)
             down = -1 * delta.clip(upper=0)
@@ -201,7 +200,6 @@ def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
             ema_down = down.ewm(alpha=1/14, adjust=False).mean()
             df['RSI'] = 100 - (100 / (1 + ema_up / ema_down))
             
-            # 2. Calculate Trend Ribbon (EMA 9 & EMA 21)
             df['EMA9'] = df['Close'].ewm(span=9, adjust=False).mean()
             df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
             
@@ -215,7 +213,6 @@ def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
             highs = df['High'].values
             rsis = df['RSI'].values
             
-            # 3. Lookback Windows for Swings
             recent_low_idx = np.argmin(lows[-15:-1]) + (len(lows) - 15)
             prev_low_idx = np.argmin(lows[-50:-15]) + (len(lows) - 50)
             recent_high_idx = np.argmax(highs[-15:-1]) + (len(highs) - 15)
@@ -242,16 +239,7 @@ def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
                 risk = abs(current_close - sl)
                 target = current_close + (risk * 3) if signal == "BUY" else current_close - (risk * 3)
                 if risk > 0:
-                    return {
-                        "Stock": stock_symbol, 
-                        "Signal": signal, 
-                        "Setup": setup_name,
-                        "Entry": float(current_close), 
-                        "LTP": float(current_close), 
-                        "SL": float(sl), 
-                        "Target": float(target), 
-                        "Time": datetime.datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%H:%M')
-                    }
+                    return {"Stock": stock_symbol, "Signal": signal, "Setup": setup_name, "Entry": float(current_close), "LTP": float(current_close), "SL": float(sl), "Target": float(target), "Time": datetime.datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%H:%M')}
         except: return None
         return None
 
@@ -325,16 +313,13 @@ def calc_dynamic_movers(item_list):
             return (obj, status, color)
         except: return None
 
-    with ThreadPoolExecutor(max_workers=50) as executor:
-        results = list(executor.map(fetch_data, item_list))
-        
+    with ThreadPoolExecutor(max_workers=50) as executor: results = list(executor.map(fetch_data, item_list))
     for res in results:
         if res:
             obj, status, color = res
             if obj['Pct'] > 0: gainers.append(obj)
             elif obj['Pct'] < 0: losers.append(obj)
             if status: trends.append({"Stock": obj['Stock'], "Status": status, "Color": color})
-            
     return sorted(gainers, key=lambda x: x['Pct'], reverse=True)[:5], sorted(losers, key=lambda x: x['Pct'])[:5], trends
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -343,8 +328,7 @@ def calc_market_breadth(item_list):
     def fetch_chg(ticker): 
         try: return fetch_live_data(ticker)[2]
         except: return 0.0
-    with ThreadPoolExecutor(max_workers=40) as executor:
-        results = list(executor.map(fetch_chg, item_list))
+    with ThreadPoolExecutor(max_workers=40) as executor: results = list(executor.map(fetch_chg, item_list))
     for pct in results:
         if pct > 0: adv += 1
         elif pct < 0: dec += 1
@@ -423,20 +407,27 @@ def scan_oi_setup(item_list):
     return [r for r in results if r]
 
 
-# 🔥 [NEW] NSE OPTION CHAIN SCRAPER 🔥
+# 🔥 [NEW] SUPER ANTI-BOT NSE OPTION CHAIN SCRAPER 🔥
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_nse_option_chain(symbol):
     url_oc = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
-    url_main = "https://www.nseindia.com"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br"
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Referer": "https://www.nseindia.com/option-chain"
     }
     try:
         session = requests.Session()
-        session.get(url_main, headers=headers, timeout=5) # Cookies সেট করার জন্য
-        response = session.get(url_oc, headers=headers, timeout=5)
+        session.headers.update(headers)
+        # Step 1: Visit main page to generate fresh cookies
+        session.get("https://www.nseindia.com/", timeout=10)
+        time.sleep(1) # Pause to act like a real browser
+        
+        # Step 2: Fetch the Option Chain Data
+        response = session.get(url_oc, timeout=10)
         if response.status_code == 200:
             return response.json()
     except Exception as e:
@@ -463,7 +454,6 @@ def process_option_chain(json_data):
     tot_ce_oi, tot_pe_oi = 0, 0
     for item in data:
         strike = item.get('strikePrice', 0)
-        
         ce_data = item.get('CE', {})
         pe_data = item.get('PE', {})
         
@@ -504,7 +494,6 @@ def process_option_chain(json_data):
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("### 🇮🇳 NSE DASHBOARD")
-    # 🚨 NEW MENU ITEM ADDED FOR OPTION CHAIN 🚨
     menu_options = ["📈 MAIN TERMINAL", "⛓️ Option Chain (Live)", "🌅 9:10 AM: Pre-Market Gap", "🚀 9:15 AM: Opening Movers", "🔥 9:20 AM: OI Setup", "📊 Backtest Engine", "⚙️ Scanner Settings"]
     page_selection = st.radio("Select Menu:", menu_options)
     st.divider()
@@ -868,7 +857,7 @@ elif page_selection == "⛓️ Option Chain (Live)":
     with idx_col2:
         strike_range = st.slider("Number of Strikes (Above & Below ATM):", 5, 30, 10)
         
-    with st.spinner(f"Fetching Live Option Chain for {selected_idx} from NSE India..."):
+    with st.spinner(f"Fetching Live Option Chain for {selected_idx}..."):
         oc_json = fetch_nse_option_chain(selected_idx)
         if oc_json:
             df_oc, spot_price, pcr, support, resistance, tot_ce, tot_pe = process_option_chain(oc_json)
@@ -1014,7 +1003,7 @@ elif page_selection == "📊 Backtest Engine":
 # ==================== MENU 4: SETTINGS ====================
 elif page_selection == "⚙️ Scanner Settings":
     st.markdown("<div class='section-title'>⚙️ System Status</div>", unsafe_allow_html=True)
-    st.success("✅ Exclusive Indian Market (NSE) App \n\n ✅ PERFECT Zero-Latency Clock Active \n\n ✅ LIVE Option Chain (Nifty, BankNifty) Added ⛓️ \n\n ✅ Smart OI Entry & SL Signals Active 🚀 \n\n ✅ RSI Divergence + Ribbon Logic Integrated 🔥 \n\n ✅ Sleep Bug Fixed (Frontend Refresh Active) 🐛🔨")
+    st.success("✅ Exclusive Indian Market (NSE) App \n\n ✅ PERFECT Zero-Latency Clock Active \n\n ✅ ANTI-BOT Option Chain (Nifty, BankNifty) Added ⛓️ \n\n ✅ Smart OI Entry & SL Signals Active 🚀 \n\n ✅ RSI Divergence + Ribbon Logic Integrated 🔥 \n\n ✅ Sleep Bug Fixed (Frontend Refresh Active) 🐛🔨")
 
 # 🔥 BUG FIX: Removed backend time.sleep() and added Frontend Auto-Refresh 🔥
 if st.session_state.auto_ref:
