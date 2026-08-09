@@ -181,7 +181,6 @@ def get_dynamic_momentum(ticker, interval_yf):
     except: pass
     return 50, "NEUTRAL", 2.5, 8.0, 0, 15.0, 100, 10, 50
 
-# 🔥 [NEW] GOLDEN ENTRY SCANNER (RSI DIV+ & TREND RIBBON LOGIC FOR NSE) 🔥
 @st.cache_data(ttl=30, show_spinner=False)
 def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
     signals = []
@@ -193,7 +192,6 @@ def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
             df = yf.Ticker(stock_symbol).history(period=period, interval=interval)
             if df.empty or len(df) < 50: return None
             
-            # 1. Calculate RSI (14)
             delta = df['Close'].diff()
             up = delta.clip(lower=0)
             down = -1 * delta.clip(upper=0)
@@ -201,7 +199,6 @@ def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
             ema_down = down.ewm(alpha=1/14, adjust=False).mean()
             df['RSI'] = 100 - (100 / (1 + ema_up / ema_down))
             
-            # 2. Calculate Trend Ribbon (EMA 9 & EMA 21)
             df['EMA9'] = df['Close'].ewm(span=9, adjust=False).mean()
             df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
             
@@ -215,7 +212,6 @@ def run_nse_advanced_strategy(stock_list, sentiment="BOTH", interval="15m"):
             highs = df['High'].values
             rsis = df['RSI'].values
             
-            # 3. Lookback Windows for Swings
             recent_low_idx = np.argmin(lows[-15:-1]) + (len(lows) - 15)
             prev_low_idx = np.argmin(lows[-50:-15]) + (len(lows) - 50)
             recent_high_idx = np.argmax(highs[-15:-1]) + (len(highs) - 15)
@@ -382,7 +378,8 @@ def scan_pre_market(stock_list):
                 today_open = float(df['Open'].iloc[-1])
                 if prev_close > 0 and today_open > 0:
                     gap_pct = ((today_open - prev_close) / prev_close) * 100
-                    if abs(gap_pct) >= 1.0: return {"Stock": ticker, "Gap %": gap_pct, "Open": today_open}
+                    # Updated to 3.0% logic
+                    if abs(gap_pct) >= 3.0: return {"Stock": ticker, "Gap %": gap_pct, "Open": today_open}
         except: return None
     with ThreadPoolExecutor(max_workers=50) as executor: results = list(executor.map(fetch_gap, stock_list))
     return sorted([r for r in results if r], key=lambda x: abs(x['Gap %']), reverse=True)
@@ -399,9 +396,29 @@ def scan_open_movers(stock_list):
                 except: ltp = float(df_day['Close'].iloc[-1])
                 if today_open > 0 and ltp > 0:
                     move_pct = ((ltp - today_open) / today_open) * 100
-                    if abs(move_pct) >= 1.5: return {"Stock": ticker, "Move %": move_pct, "LTP": ltp}
+                    # Updated to 2.0% logic
+                    if abs(move_pct) >= 2.0: return {"Stock": ticker, "Move %": move_pct, "LTP": ltp}
         except: return None
     with ThreadPoolExecutor(max_workers=50) as executor: results = list(executor.map(fetch_move, stock_list))
+    return sorted([r for r in results if r], key=lambda x: abs(x['Move %']), reverse=True)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def scan_closing_movers(stock_list):
+    movers = []
+    def fetch_close(ticker):
+        try:
+            df = yf.Ticker(ticker).history(period="1d", interval="1d")
+            if not df.empty:
+                open_p = float(df['Open'].iloc[-1])
+                close_p = float(df['Close'].iloc[-1])
+                if open_p > 0 and close_p > 0:
+                    move_pct = ((close_p - open_p) / open_p) * 100
+                    # Logic for 5% Closing move
+                    if abs(move_pct) >= 5.0:
+                        return {"Stock": ticker, "Move %": move_pct, "Close": close_p}
+        except: return None
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        results = list(executor.map(fetch_close, stock_list))
     return sorted([r for r in results if r], key=lambda x: abs(x['Move %']), reverse=True)
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -435,7 +452,7 @@ def fetch_nse_option_chain(symbol):
     }
     try:
         session = requests.Session()
-        session.get(url_main, headers=headers, timeout=5) # Cookies সেট করার জন্য
+        session.get(url_main, headers=headers, timeout=5)
         response = session.get(url_oc, headers=headers, timeout=5)
         if response.status_code == 200:
             return response.json()
@@ -504,8 +521,7 @@ def process_option_chain(json_data):
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("### 🇮🇳 NSE DASHBOARD")
-    # 🚨 NEW MENU ITEM ADDED FOR OPTION CHAIN 🚨
-    menu_options = ["📈 MAIN TERMINAL", "⛓️ Option Chain (Live)", "🌅 9:10 AM: Pre-Market Gap", "🚀 9:15 AM: Opening Movers", "🔥 9:20 AM: OI Setup", "📊 Backtest Engine", "⚙️ Scanner Settings"]
+    menu_options = ["📈 MAIN TERMINAL", "⛓️ Option Chain (Live)", "🌅 9:10 AM: Pre-Market Gap", "🚀 9:15 AM: Opening Movers", "🔥 9:20 AM: OI Setup", "🌇 3:30 PM: Closing Movers", "📊 Backtest Engine", "⚙️ Scanner Settings"]
     page_selection = st.radio("Select Menu:", menu_options)
     st.divider()
     
@@ -959,6 +975,22 @@ elif page_selection in ["🌅 9:10 AM: Pre-Market Gap", "🚀 9:15 AM: Opening M
         m_html += "</table></div>"
         st.markdown(m_html, unsafe_allow_html=True)
     else: st.info("No significant movement found based on live data.")
+
+# ==================== CLOSING MOVERS ====================
+elif page_selection == "🌇 3:30 PM: Closing Movers":
+    st.markdown(f"<div class='section-title'>{page_selection}</div>", unsafe_allow_html=True)
+    with st.spinner("Scanning for 5% Closing Movers..."):
+        movers = scan_closing_movers(ALL_STOCKS)
+    if movers:
+        c_html = f"<div class='table-container'><table class='v38-table'><tr><th>Stock 🔗</th><th>Close Price</th><th>Move % (vs Today Open)</th></tr>"
+        for m in movers:
+            c = "green" if m['Move %'] > 0 else "red"
+            int_link = get_internal_link(m['Stock'])
+            ext_link = get_tv_link(m['Stock'])
+            c_html += f"<tr><td style='font-weight:bold;'><a href='{int_link}' target='_self'>🔸 {m['Stock']}</a> <a href='{ext_link}' target='_blank' style='font-size:10px;'>🌐</a></td><td>₹{fmt_price(m['Close'])}</td><td style='color:{c}; font-weight:bold;'>{m['Move %']:.2f}%</td></tr>"
+        c_html += "</table></div>"
+        st.markdown(c_html, unsafe_allow_html=True)
+    else: st.info("No stocks found with 5% or more movement today.")
 
 elif page_selection == "🔥 9:20 AM: OI Setup":
     st.markdown(f"<div class='section-title'>{page_selection}</div>", unsafe_allow_html=True)
